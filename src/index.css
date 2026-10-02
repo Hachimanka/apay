@@ -1,0 +1,107 @@
+@import 'tailwindcss';
+
+/* Aznar design tokens — keep in sync with the APAY repo */
+@theme {
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --color-primary: #1557e0;
+  --color-primary-600: #1048c2;
+  --color-primary-700: #0d3a9c;
+  --color-primary-400: #4f84ec;
+  --color-primary-200: #bcd0f7;
+  --color-primary-100: #dbe6fc;
+  --color-primary-50: #eef3fd;
+
+  --color-navy: #0f1b3d;
+  --color-ink: #2a3656;
+  --color-muted: #6b7a99;
+  --color-line: #e6ecf7;
+  --color-bg: #f5f8fe;
+  --color-surface: #ffffff;
+
+  --color-success: #16a34a;
+  --color-success-50: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-50: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-50: #fee2e2;
+  --color-violet: #9333ea;
+  --color-violet-50: #f3e8ff;
+
+  --radius-card: 1rem;
+
+  --shadow-card: 0 1px 2px rgb(15 27 61 / 0.04), 0 4px 16px -4px rgb(21 87 224 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(15 27 61 / 0.04), 0 18px 40px -12px rgb(21 87 224 / 0.28);
+  --shadow-float: 0 30px 80px -20px rgb(15 27 61 / 0.25);
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-float-slow: float 8s ease-in-out infinite;
+
+  @keyframes marquee {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-12px);
+    }
+  }
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-bg font-sans text-ink antialiased;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply text-navy;
+  }
+  ::selection {
+    @apply bg-primary-100 text-primary-700;
+  }
+}
+
+@utility card {
+  @apply rounded-card border border-line bg-surface shadow-card;
+}
+
+/* The signature hover: lift, deeper blue shadow, blue border, arrow slides */
+@utility card-hover {
+  @apply transition-all duration-200 ease-out;
+  &:hover {
+    @apply -translate-y-1 border-primary-200 shadow-lift;
+  }
+  &:hover .hover-arrow {
+    @apply translate-x-1 text-primary;
+  }
+}
+
+@utility safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@utility safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
