@@ -114,7 +114,7 @@ export function AdjustmentsPage() {
                 onClick={() => setFilter(f)}
                 className={cn(
                   'rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition',
-                  filter === f ? 'bg-white text-primary shadow-card' : 'text-muted hover:text-primary',
+                  filter === f ? 'bg-surface text-primary shadow-card' : 'text-muted hover:text-primary',
                 )}
               >
                 {f === 'all' ? 'All' : `${f}s`}

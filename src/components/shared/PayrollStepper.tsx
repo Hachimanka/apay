@@ -24,8 +24,8 @@ export function PayrollStepper({ status, className }: { status: PeriodStatus; cl
               className={cn(
                 'relative flex size-8 items-center justify-center rounded-full border-2 text-xs font-bold transition',
                 done && 'border-primary bg-primary text-white',
-                active && 'border-primary bg-white text-primary ring-4 ring-primary-100',
-                !done && !active && 'border-line bg-white text-muted',
+                active && 'border-primary bg-surface text-primary ring-4 ring-primary-100',
+                !done && !active && 'border-line bg-surface text-muted',
               )}
             >
               {done ? <Check className="size-4" /> : i + 1}

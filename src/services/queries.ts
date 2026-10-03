@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
-import type { AdjustmentInput, AnnouncementInput, ApprovalStatus, EmployeeInput, PayrollSettings, PeriodStatus } from './types'
+import type { AdjustmentInput, AnnouncementInput, ApprovalStatus, AttendanceInput, EmployeeInput, PayrollSettings, PeriodStatus } from './types'
 
 export const keys = {
   employees: ['employees'] as const,
@@ -74,4 +74,22 @@ export function useSaveAnnouncement() {
 export function useSaveSettings() {
   const invalidate = useInvalidate()
   return useMutation({ mutationFn: (input: PayrollSettings) => api.saveSettings(input), onSuccess: () => invalidate(keys.settings) })
+}
+
+/** Attendance edits can reset a computed payroll to draft, so refresh the whole period (lines, totals, status). */
+export function useSaveAttendance() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: ({ periodId, source, rows }: { periodId: string; source: 'manual' | 'upload'; rows: AttendanceInput[] }) =>
+      api.saveAttendance(periodId, source, rows),
+    onSuccess: () => invalidate(keys.periods),
+  })
+}
+
+export function useResetAttendance() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: ({ periodId, employeeId }: { periodId: string; employeeId: string }) => api.resetAttendance(periodId, employeeId),
+    onSuccess: () => invalidate(keys.periods),
+  })
 }

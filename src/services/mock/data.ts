@@ -153,6 +153,7 @@ export function buildAttendance(period: PayrollPeriod): AttendanceRow[] {
         overtimeHours,
         paidLeaveDays,
         unpaidLeaveDays,
+        source: 'dtr' as const,
       }
     })
 }

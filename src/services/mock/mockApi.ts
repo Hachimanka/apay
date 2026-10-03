@@ -1,5 +1,5 @@
 import { computeCutoff, sum } from '@/lib/payroll'
-import type { ApayApi, Employee, PayrollLine, PayrollPeriod, PeriodStatus } from '../types'
+import type { ApayApi, AttendanceInput, AttendanceRow, Employee, PayrollLine, PayrollPeriod, PeriodStatus } from '../types'
 import * as db from './data'
 
 /** In-memory stand-in for aznar-api so APAY works before the backend exists. */
@@ -24,8 +24,31 @@ function findPeriod(id: string) {
   return p
 }
 
+/** HR-entered cut-off attendance, keyed `${periodId}|${employeeId}`; wins over the seeded DTR summary. */
+const overrides = new Map<string, AttendanceInput & { source: 'manual' | 'upload' }>()
+
+function attendanceFor(period: PayrollPeriod): AttendanceRow[] {
+  return db.buildAttendance(period).map((a) => {
+    const o = overrides.get(`${period.id}|${a.employeeId}`)
+    return o ? { ...a, ...o, employeeId: a.employeeId } : a
+  })
+}
+
+/** Same rule as the API: only draft/computed accept edits, and a computed payroll drops back to draft. */
+function reopenForAttendance(periodId: string) {
+  const p = findPeriod(periodId)
+  if (p.status !== 'draft' && p.status !== 'computed') throw new ApiError(`Attendance of a ${p.status} payroll can no longer be changed`, 409)
+  if (p.status === 'computed') {
+    lines.delete(p.id)
+    applyTotals(p, [])
+    p.status = 'draft'
+    p.computedAt = undefined
+  }
+  return p
+}
+
 function computeLines(period: PayrollPeriod): PayrollLine[] {
-  const attendance = db.buildAttendance(period)
+  const attendance = attendanceFor(period)
   return attendance.map((a) => {
     const emp = db.employees.find((e) => e.id === a.employeeId)!
     const mine = db.adjustments.filter((x) => x.employeeId === emp.id && x.active)
@@ -79,11 +102,9 @@ const nextStatus: Record<PeriodStatus, PeriodStatus | null> = {
 }
 
 export const mockApi: ApayApi = {
-  async login(email, _password, role) {
-    const names = { payroll_admin: 'Kristine Villanueva', hr: 'Ana Cruz', finance: 'Jose Reyes', management: 'Nicole Lim' }
-    const titles = { payroll_admin: 'Payroll Specialist', hr: 'HR Manager', finance: 'Finance Manager', management: 'Sales Manager' }
-    actor = names[role]
-    return wait({ token: `mock.${btoa(email)}`, user: { id: `usr_${role}`, name: names[role], email, role, title: titles[role] } }, 600)
+  async login(email) {
+    actor = 'Ana Cruz'
+    return wait({ token: `mock.${btoa(email)}`, user: { id: 'usr_hr', name: 'Ana Cruz', email, role: 'hr', title: 'HR Manager' } }, 600)
   },
 
   listEmployees: () => wait(db.employees),
@@ -109,7 +130,31 @@ export const mockApi: ApayApi = {
 
   listPeriods: () => wait(db.periods),
   getPeriod: async (id) => wait(findPeriod(id)),
-  getAttendance: async (periodId) => wait(db.buildAttendance(findPeriod(periodId))),
+  getAttendance: async (periodId) => wait(attendanceFor(findPeriod(periodId))),
+
+  async saveAttendance(periodId, source, rows) {
+    const p = reopenForAttendance(periodId)
+    const current = new Map(attendanceFor(p).map((r) => [r.employeeId, r]))
+    for (const r of rows) {
+      const cur = current.get(r.employeeId)
+      if (!cur) throw new ApiError('Unknown or inactive employee')
+      if (r.daysPresent + r.absentDays + r.paidLeaveDays + r.unpaidLeaveDays !== cur.workingDays)
+        throw new ApiError(`${cur.name}: present + absent + leave must equal ${cur.workingDays} working days`)
+    }
+    for (const r of rows) overrides.set(`${p.id}|${r.employeeId}`, { ...r, source })
+    log(
+      source === 'upload' ? 'Uploaded attendance' : 'Edited attendance',
+      source === 'upload' ? `${p.label} · ${rows.length} employees` : `${p.label} · ${current.get(rows[0].employeeId)!.name}`,
+    )
+    return wait(attendanceFor(p), 500)
+  },
+
+  async resetAttendance(periodId, employeeId) {
+    const p = reopenForAttendance(periodId)
+    if (!overrides.delete(`${p.id}|${employeeId}`)) throw new ApiError('Attendance override not found', 404)
+    log('Reset attendance to DTR', p.label)
+    return wait(attendanceFor(p), 400)
+  },
   getPayrollLines: async (periodId) => wait(lines.get(periodId) ?? []),
 
   async computePayroll(periodId) {

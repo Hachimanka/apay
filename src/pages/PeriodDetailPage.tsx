@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import type { ColumnDef } from '@tanstack/react-table'
-import { ArrowLeft, Calculator, CheckCircle2, Download, RotateCcw, Send, ShieldCheck, Undo2 } from 'lucide-react'
+import { Calculator, CheckCircle2, Download, RotateCcw, Send, ShieldCheck, Undo2 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
@@ -13,6 +13,7 @@ import { PayslipView } from '@/components/shared/PayslipView'
 import { useAttendance, useComputePayroll, usePayrollLines, usePeriod, useSetPeriodStatus } from '@/services/queries'
 import type { AttendanceRow, PayrollLine, PeriodStatus } from '@/services/types'
 import { useAuth } from '@/store/auth'
+import { useDetailCrumb } from '@/store/breadcrumb'
 import { can } from '@/lib/permissions'
 import { downloadCsv } from '@/lib/csv'
 import { formatDate, formatPeso } from '@/lib/format'
@@ -88,6 +89,7 @@ export function PeriodDetailPage() {
   const [preview, setPreview] = useState<PayrollLine | null>(null)
 
   const p = period.data
+  useDetailCrumb(period.isError ? 'Not found' : p?.label)
   const hasLines = !!lines.data?.length
   const activeTab = hasLines ? tab : 'attendance'
   const error = compute.error ?? setStatus.error
@@ -190,10 +192,6 @@ export function PeriodDetailPage() {
 
   return (
     <>
-      <Link to="/app/periods" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-muted hover:text-primary">
-        <ArrowLeft className="size-4" /> All payroll periods
-      </Link>
-
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-xs font-semibold tracking-wider text-muted uppercase">Payroll period</p>
@@ -228,7 +226,7 @@ export function PeriodDetailPage() {
         ))}
       </div>
 
-      <div className="mt-6 mb-3 flex gap-1 rounded-xl bg-white p-1 shadow-card sm:inline-flex">
+      <div className="mt-6 mb-3 flex gap-1 rounded-xl bg-surface p-1 shadow-card sm:inline-flex">
         {(['register', 'attendance'] as const).map((t) => (
           <button
             key={t}

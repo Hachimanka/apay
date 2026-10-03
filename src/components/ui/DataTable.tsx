@@ -66,7 +66,7 @@ export function DataTable<T>({
             value={globalFilter}
             onChange={(e) => setGlobalFilter(e.target.value)}
             placeholder={searchPlaceholder}
-            className="w-full rounded-xl border border-line bg-bg py-2 pr-3 pl-9 text-sm text-navy placeholder:text-muted/70 focus:border-primary focus:bg-white focus:ring-4 focus:ring-primary-100 focus:outline-none"
+            className="w-full rounded-xl border border-line bg-bg py-2 pr-3 pl-9 text-sm text-navy placeholder:text-muted/70 focus:border-primary focus:bg-surface focus:ring-4 focus:ring-primary-100 focus:outline-none"
           />
         </label>
         {toolbar && <div className="flex flex-wrap items-center gap-2">{toolbar}</div>}

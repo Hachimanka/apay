@@ -64,7 +64,7 @@ export function PayslipsPage() {
         actions={<PeriodSelect value={periodId} onChange={setPeriodId} onlyComputed />}
       />
       {period.data && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl bg-white p-4 shadow-card">
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl bg-surface p-4 shadow-card">
           <Send className="size-5 text-primary" />
           <p className="flex-1 text-sm text-ink">
             {released ? (

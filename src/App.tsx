@@ -11,6 +11,7 @@ const LandingPage = lazy(() => import('@/features/landing/LandingPage').then((m)
 const LoginPage = lazy(() => import('@/pages/LoginPage').then((m) => ({ default: m.LoginPage })))
 const DashboardPage = lazy(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 const EmployeesPage = lazy(() => import('@/pages/EmployeesPage').then((m) => ({ default: m.EmployeesPage })))
+const EmployeeDetailPage = lazy(() => import('@/pages/EmployeeDetailPage').then((m) => ({ default: m.EmployeeDetailPage })))
 const AttendancePage = lazy(() => import('@/pages/AttendancePage').then((m) => ({ default: m.AttendancePage })))
 const OvertimePage = lazy(() => import('@/pages/OvertimePage').then((m) => ({ default: m.OvertimePage })))
 const LeaveImpactPage = lazy(() => import('@/pages/LeaveImpactPage').then((m) => ({ default: m.LeaveImpactPage })))
@@ -26,6 +27,8 @@ const SettingsPage = lazy(() => import('@/pages/SettingsPage').then((m) => ({ de
 function RequireAuth() {
   const session = useAuth((s) => s.session)
   const location = useLocation()
+  // index.html pre-paints dark mode on /app before we know there's a session; login stays light.
+  if (!session) document.documentElement.classList.remove('dark')
   return session ? <Outlet /> : <Navigate to="/login" replace state={{ from: location.pathname }} />
 }
 
@@ -52,6 +55,7 @@ export default function App() {
             <Route path="/app" element={<AppLayout />}>
               <Route index element={<DashboardPage />} />
               <Route path="employees" element={<EmployeesPage />} />
+              <Route path="employees/:id" element={<EmployeeDetailPage />} />
               <Route path="attendance" element={<AttendancePage />} />
               <Route path="overtime" element={<OvertimePage />} />
               <Route path="leave-impact" element={<LeaveImpactPage />} />

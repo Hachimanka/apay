@@ -4,13 +4,13 @@ import { formatPeso } from '@/lib/format'
 /** Validated with the dataviz palette checker (light surface): brand blue, orange, aqua. */
 export const SERIES = ['#1557e0', '#eb6834', '#1baf7a'] as const
 
-const axis = { stroke: '#6b7a99', fontSize: 11, tickLine: false, axisLine: false } as const
+const axis = { stroke: 'var(--color-muted)', fontSize: 11, tickLine: false, axisLine: false } as const
 const compact = (v: number) => (v >= 1_000_000 ? `₱${(v / 1_000_000).toFixed(1)}M` : v >= 1000 ? `₱${Math.round(v / 1000)}k` : `₱${v}`)
 
 function PesoTooltip({ active, payload, label }: TooltipContentProps<number, string>) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-xl border border-line bg-white px-3.5 py-2.5 text-xs shadow-float">
+    <div className="rounded-xl border border-line bg-surface px-3.5 py-2.5 text-xs shadow-float">
       <p className="mb-1.5 font-semibold text-navy">{label}</p>
       {payload.map((p) => (
         <p key={String(p.dataKey)} className="flex items-center gap-2 text-ink">
@@ -41,16 +41,16 @@ export function PesoBarChart({
   return (
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="28%">
-        <CartesianGrid vertical={false} stroke="#e6ecf7" />
+        <CartesianGrid vertical={false} stroke="var(--color-line)" />
         <XAxis dataKey={xKey} {...axis} dy={6} />
         <YAxis {...axis} tickFormatter={compact} width={52} />
-        <Tooltip content={(p) => <PesoTooltip {...(p as TooltipContentProps<number, string>)} />} cursor={{ fill: '#eef3fd' }} />
+        <Tooltip content={(p) => <PesoTooltip {...(p as TooltipContentProps<number, string>)} />} cursor={{ fill: 'var(--color-primary-50)' }} />
         {stacked && (
           <Legend
             iconType="square"
             iconSize={10}
             wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-            formatter={(value) => <span style={{ color: '#2a3656' }}>{value}</span>}
+            formatter={(value) => <span style={{ color: 'var(--color-ink)' }}>{value}</span>}
           />
         )}
         {series.map((s, i) => (
@@ -60,7 +60,7 @@ export function PesoBarChart({
             name={s.name}
             stackId={stacked ? 'a' : undefined}
             fill={SERIES[i]}
-            stroke="#ffffff"
+            stroke="var(--color-surface)"
             strokeWidth={stacked ? 2 : 0}
             radius={i === series.length - 1 ? [4, 4, 0, 0] : 0}
             maxBarSize={44}
@@ -86,10 +86,10 @@ export function PesoHBarChart({
   return (
     <ResponsiveContainer width="100%" height={Math.max(160, data.length * 40)}>
       <BarChart data={data} layout="vertical" margin={{ top: 0, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
-        <CartesianGrid horizontal={false} stroke="#e6ecf7" />
+        <CartesianGrid horizontal={false} stroke="var(--color-line)" />
         <XAxis type="number" {...axis} tickFormatter={compact} />
         <YAxis type="category" dataKey={labelKey} {...axis} width={120} />
-        <Tooltip content={(p) => <PesoTooltip {...(p as TooltipContentProps<number, string>)} />} cursor={{ fill: '#eef3fd' }} />
+        <Tooltip content={(p) => <PesoTooltip {...(p as TooltipContentProps<number, string>)} />} cursor={{ fill: 'var(--color-primary-50)' }} />
         <Bar dataKey={valueKey} name={name} fill={SERIES[0]} radius={[0, 4, 4, 0]} maxBarSize={22} />
       </BarChart>
     </ResponsiveContainer>

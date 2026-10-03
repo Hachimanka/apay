@@ -35,7 +35,7 @@ const json = (body: unknown) => JSON.stringify(body)
 
 /** Real aznar-api adapter — APAY routes live under /apay, auth under /auth. */
 export const httpApi: ApayApi = {
-  login: (email, password, role) => request<Session>('/auth/login', { method: 'POST', body: json({ email, password, role, app: 'apay' }) }),
+  login: (email, password) => request<Session>('/auth/login', { method: 'POST', body: json({ email, password, app: 'apay' }) }),
 
   listEmployees: () => request('/apay/employees'),
   getEmployee: (id) => request(`/apay/employees/${id}`),
@@ -47,6 +47,8 @@ export const httpApi: ApayApi = {
   listPeriods: () => request('/apay/periods'),
   getPeriod: (id) => request(`/apay/periods/${id}`),
   getAttendance: (id) => request(`/apay/periods/${id}/attendance`),
+  saveAttendance: (id, source, rows) => request(`/apay/periods/${id}/attendance`, { method: 'PUT', body: json({ source, rows }) }),
+  resetAttendance: (id, employeeId) => request(`/apay/periods/${id}/attendance/${employeeId}`, { method: 'DELETE' }),
   getPayrollLines: (id) => request(`/apay/periods/${id}/lines`),
   computePayroll: (id) => request(`/apay/periods/${id}/compute`, { method: 'POST' }),
   setPeriodStatus: (id, status) => request(`/apay/periods/${id}/status`, { method: 'POST', body: json({ status }) }),

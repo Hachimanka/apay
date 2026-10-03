@@ -15,6 +15,13 @@ export const useAuth = create<AuthState>()(
       setSession: (session) => set({ session }),
       logout: () => set({ session: null }),
     }),
-    { name: 'apay-auth' },
+    {
+      name: 'apay-auth',
+      // Sessions saved before APAY became HR-only (Finance, Payroll Admin…) are dropped so those users see the sign-in page
+      merge: (persisted, current) => {
+        const saved = (persisted as Partial<AuthState> | undefined)?.session
+        return { ...current, session: saved?.user.role === 'hr' ? saved : null }
+      },
+    },
   ),
 )

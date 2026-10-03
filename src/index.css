@@ -19,6 +19,10 @@
   --color-bg: #f5f8fe;
   --color-surface: #ffffff;
 
+  /* Navy from the Aznar logo, used for the APay wordmark */
+  --color-brand: #024c8d;
+  --color-brand-700: #013a6b;
+
   --color-success: #16a34a;
   --color-success-50: #dcfce7;
   --color-warning: #d97706;
@@ -52,6 +56,44 @@
       transform: translateY(-12px);
     }
   }
+}
+
+/* Dark mode is class-based (set on <html> by the app shell), not tied to the OS setting */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Dark palette: same token names, so every bg-bg / text-navy / border-line etc. flips automatically */
+.dark {
+  color-scheme: dark;
+
+  --color-primary: #3a73ee;
+  --color-primary-600: #2c63dc;
+  --color-primary-700: #1f4fbf;
+  --color-primary-400: #7aa3f5;
+  --color-primary-200: #2d4a8a;
+  --color-primary-100: #1d3266;
+  --color-primary-50: #16254b;
+
+  --color-navy: #e9eefb;
+  --color-ink: #c4cde3;
+  --color-muted: #8b97b5;
+  --color-line: #232f4d;
+  --color-bg: #0a1124;
+  --color-surface: #111a33;
+  --color-brand: #5b9be0;
+  --color-brand-700: #8bb9ec;
+
+  --color-success: #34d07a;
+  --color-success-50: #0f2e1f;
+  --color-warning: #f5a524;
+  --color-warning-50: #33240b;
+  --color-danger: #f87171;
+  --color-danger-50: #3a1518;
+  --color-violet: #c08bfa;
+  --color-violet-50: #2a1847;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px -4px rgb(0 0 0 / 0.4);
+  --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.3), 0 18px 40px -12px rgb(58 115 238 / 0.35);
+  --shadow-float: 0 30px 80px -20px rgb(0 0 0 / 0.6);
 }
 
 @layer base {

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -58,8 +59,9 @@ const columns: ColumnDef<Employee>[] = [
 export function EmployeesPage() {
   const { data, isLoading } = useEmployees()
   const role = useAuth((s) => s.session?.user.role)
-  const [editing, setEditing] = useState<Employee | 'new' | null>(null)
+  const [adding, setAdding] = useState(false)
   const canManage = can(role, 'employees.manage')
+  const navigate = useNavigate()
 
   return (
     <>
@@ -69,7 +71,7 @@ export function EmployeesPage() {
         description="The employee master used for payroll. Profile changes sync to AZONE."
         actions={
           canManage && (
-            <Button onClick={() => setEditing('new')}>
+            <Button onClick={() => setAdding(true)}>
               <UserPlus className="size-4" /> Add employee
             </Button>
           )
@@ -80,7 +82,7 @@ export function EmployeesPage() {
         columns={columns}
         loading={isLoading}
         searchPlaceholder="Search name, ID, department…"
-        onRowClick={canManage ? setEditing : undefined}
+        onRowClick={(e) => navigate(`/app/employees/${e.id}`)}
         toolbar={
           <Button
             variant="soft"
@@ -105,7 +107,7 @@ export function EmployeesPage() {
           </Button>
         }
       />
-      {editing && <EmployeeDialog employee={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {adding && <EmployeeDialog employee={null} onClose={() => setAdding(false)} />}
     </>
   )
 }
@@ -126,7 +128,7 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>
 
-function EmployeeDialog({ employee, onClose }: { employee: Employee | null; onClose: () => void }) {
+export function EmployeeDialog({ employee, onClose }: { employee: Employee | null; onClose: () => void }) {
   const save = useSaveEmployee()
   const {
     register,

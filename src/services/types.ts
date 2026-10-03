@@ -6,7 +6,8 @@ import type { CutoffResult, Money, OvertimeKind } from '@/lib/payroll'
 
 export type { Money, OvertimeKind }
 
-export type Role = 'hr' | 'payroll_admin' | 'finance' | 'management'
+/** APAY is run by the HR department alone; the API refuses every other account. */
+export type Role = 'hr'
 
 export type User = { id: string; name: string; email: string; role: Role; title: string }
 
@@ -65,7 +66,12 @@ export type AttendanceRow = {
   overtimeHours: number
   paidLeaveDays: number
   unpaidLeaveDays: number
+  /** dtr = from daily records; manual/upload = HR entered this cut-off's numbers directly */
+  source: 'dtr' | 'manual' | 'upload'
 }
+
+/** HR-entered cut-off numbers for one employee (overtime stays with the Overtime approvals). */
+export type AttendanceInput = Pick<AttendanceRow, 'employeeId' | 'daysPresent' | 'absentDays' | 'lateMinutes' | 'paidLeaveDays' | 'unpaidLeaveDays'>
 
 export type PayrollLine = CutoffResult & {
   employeeId: string
@@ -150,7 +156,7 @@ export type PayrollSettings = {
 export type AuditEntry = { id: string; at: string; actor: string; action: string; target: string }
 
 export interface ApayApi {
-  login(email: string, password: string, role: Role): Promise<Session>
+  login(email: string, password: string): Promise<Session>
 
   listEmployees(): Promise<Employee[]>
   getEmployee(id: string): Promise<Employee>
@@ -159,6 +165,8 @@ export interface ApayApi {
   listPeriods(): Promise<PayrollPeriod[]>
   getPeriod(id: string): Promise<PayrollPeriod>
   getAttendance(periodId: string): Promise<AttendanceRow[]>
+  saveAttendance(periodId: string, source: 'manual' | 'upload', rows: AttendanceInput[]): Promise<AttendanceRow[]>
+  resetAttendance(periodId: string, employeeId: string): Promise<AttendanceRow[]>
   getPayrollLines(periodId: string): Promise<PayrollLine[]>
   computePayroll(periodId: string): Promise<PayrollPeriod>
   setPeriodStatus(periodId: string, status: PeriodStatus): Promise<PayrollPeriod>
