@@ -16,7 +16,7 @@ type Issued = { email: string; temporaryPassword: string }
  * Self-contained client for the reset queue. Kept in this file (rather than services/httpApi.ts) while the
  * APAY email-reset work is in flight in those service files; fold it into services/ once that lands.
  */
-const BASE = import.meta.env.VITE_API_URL ?? ''
+const BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 
 async function call<T>(path: string, method = 'GET'): Promise<T> {
   const token = useAuth.getState().session?.token

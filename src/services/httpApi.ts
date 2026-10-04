@@ -1,7 +1,7 @@
 import { useAuth } from '@/store/auth'
 import type { ApayApi, Session } from './types'
 
-const BASE = import.meta.env.VITE_API_URL ?? ''
+const BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
 
 export class ApiError extends Error {
   constructor(
