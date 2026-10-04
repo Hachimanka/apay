@@ -1,9 +1,9 @@
 import type { AttendanceInput, AttendanceRow } from '@/services/types'
 import { parseCsv } from './csv'
+import { nameHeaders, nameIndex } from './names'
 
 /** Columns of the downloadable template; uploads match headers loosely (case, spaces and punctuation ignored). */
 export const templateHeaders = {
-  employeeNo: 'Employee No',
   name: 'Name',
   workingDays: 'Working days',
   daysPresent: 'Present',
@@ -14,10 +14,7 @@ export const templateHeaders = {
 } as const
 
 const aliases: Record<string, keyof typeof templateHeaders> = {
-  employeeno: 'employeeNo',
-  employeeid: 'employeeNo',
-  empno: 'employeeNo',
-  idno: 'employeeNo',
+  ...Object.fromEntries([...nameHeaders].map((h) => [h, 'name' as const])),
   present: 'daysPresent',
   dayspresent: 'daysPresent',
   absent: 'absentDays',
@@ -38,7 +35,6 @@ const norm = (h: string) => h.toLowerCase().replace(/[^a-z]/g, '')
 
 export function attendanceTemplate(rows: AttendanceRow[]) {
   return rows.map((r) => ({
-    [templateHeaders.employeeNo]: r.employeeNo,
     [templateHeaders.name]: r.name,
     [templateHeaders.workingDays]: r.workingDays,
     [templateHeaders.daysPresent]: r.daysPresent,
@@ -57,7 +53,7 @@ export type ImportResult = {
 }
 
 /**
- * Read an uploaded cut-off sheet against the current roster. Rows are matched by Employee No.
+ * Read an uploaded cut-off sheet against the current roster. Rows are matched by employee name ("Cruz, Ana" works too).
  * Late and leave columns may be omitted (treated as 0); a blank Present is filled in from the working days.
  */
 export function readAttendanceCsv(text: string, current: AttendanceRow[]): ImportResult {
@@ -68,21 +64,29 @@ export function readAttendanceCsv(text: string, current: AttendanceRow[]): Impor
     const key = aliases[norm(h)]
     if (key && !col.has(key)) col.set(key, i)
   })
-  if (!col.has('employeeNo')) return { changes: [], unchanged: 0, errors: ['Missing an "Employee No" column — start from the template.'] }
+  if (!col.has('name')) return { changes: [], unchanged: 0, errors: ['Missing a "Name" column — start from the template.'] }
   if (!col.has('absentDays')) return { changes: [], unchanged: 0, errors: ['Missing an "Absent" column — start from the template.'] }
 
-  const byNo = new Map(current.map((r) => [r.employeeNo.trim().toUpperCase(), r]))
+  const find = nameIndex(current)
   const seen = new Set<string>()
   const result: ImportResult = { changes: [], unchanged: 0, errors: [] }
 
   body.forEach((cells, i) => {
     const line = i + 2
     const cell = (k: keyof typeof templateHeaders) => (col.has(k) ? (cells[col.get(k)!] ?? '').trim() : '')
-    const no = cell('employeeNo').toUpperCase()
-    const before = byNo.get(no)
-    if (!before) return void result.errors.push(`Row ${line}: no active employee with Employee No "${cell('employeeNo')}"`)
-    if (seen.has(no)) return void result.errors.push(`Row ${line}: ${before.name} appears more than once`)
-    seen.add(no)
+    const rawName = cell('name')
+    const match = find(rawName)
+    if ('error' in match)
+      return void result.errors.push(
+        match.error === 'missing'
+          ? `Row ${line}: the name is blank`
+          : match.error === 'ambiguous'
+            ? `Row ${line}: more than one employee is named "${rawName}" — edit that person on the page`
+            : `Row ${line}: no active employee named "${rawName}"`,
+      )
+    const before = match.found
+    if (seen.has(before.employeeId)) return void result.errors.push(`Row ${line}: ${before.name} appears more than once`)
+    seen.add(before.employeeId)
 
     const num = (k: keyof typeof templateHeaders, step: number) => {
       const raw = cell(k)

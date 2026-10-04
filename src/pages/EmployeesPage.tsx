@@ -1,17 +1,17 @@
-import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { ColumnDef } from '@tanstack/react-table'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
+
 import { Download, UserPlus } from 'lucide-react'
 import { PageHeader } from '@/components/ui/Misc'
 import { DataTable } from '@/components/ui/DataTable'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { Field, Input, Select } from '@/components/ui/Field'
-import { Avatar } from '@/components/ui/Avatar'
+import { EmployeeAvatar } from '@/components/shared/EmployeeAvatar'
 import { EmploymentBadge } from '@/components/shared/StatusBadges'
+import { PasswordResetRequests } from '@/components/shared/PasswordResetRequests'
 import { useEmployees, useSaveEmployee } from '@/services/queries'
 import type { Employee } from '@/services/types'
 import { useAuth } from '@/store/auth'
@@ -19,8 +19,7 @@ import { can } from '@/lib/permissions'
 import { dailyRate } from '@/lib/payroll'
 import { downloadCsv } from '@/lib/csv'
 import { formatDate, formatPeso } from '@/lib/format'
-
-const departments = ['IT Department', 'HR Department', 'Finance', 'Operations', 'Sales & Marketing', 'Customer Service']
+import { departments, employeeSchema, taxStatusLabels, taxStatusOptions, type EmployeeFormValues } from '@/features/employees/employeeForm'
 
 const columns: ColumnDef<Employee>[] = [
   {
@@ -28,7 +27,7 @@ const columns: ColumnDef<Employee>[] = [
     header: 'Employee',
     cell: ({ row }) => (
       <span className="flex items-center gap-3">
-        <Avatar name={row.original.fullName} className="size-8 text-xs ring-2" />
+        <EmployeeAvatar employee={row.original} className="size-8 text-xs ring-2" />
         <span>
           <span className="block font-semibold text-navy">{row.original.fullName}</span>
           <span className="block text-xs text-muted">{row.original.employeeNo}</span>
@@ -59,7 +58,6 @@ const columns: ColumnDef<Employee>[] = [
 export function EmployeesPage() {
   const { data, isLoading } = useEmployees()
   const role = useAuth((s) => s.session?.user.role)
-  const [adding, setAdding] = useState(false)
   const canManage = can(role, 'employees.manage')
   const navigate = useNavigate()
 
@@ -71,12 +69,13 @@ export function EmployeesPage() {
         description="The employee master used for payroll. Profile changes sync to AZONE."
         actions={
           canManage && (
-            <Button onClick={() => setAdding(true)}>
+            <Button onClick={() => navigate('/app/employees/new')}>
               <UserPlus className="size-4" /> Add employee
             </Button>
           )
         }
       />
+      {canManage && <PasswordResetRequests />}
       <DataTable
         data={data}
         columns={columns}
@@ -107,63 +106,35 @@ export function EmployeesPage() {
           </Button>
         }
       />
-      {adding && <EmployeeDialog employee={null} onClose={() => setAdding(false)} />}
     </>
   )
 }
 
-const schema = z.object({
-  employeeNo: z.string().trim().min(3, 'Required'),
-  firstName: z.string().trim().min(1, 'Required'),
-  lastName: z.string().trim().min(1, 'Required'),
-  email: z.email('Enter a valid email'),
-  position: z.string().trim().min(2, 'Required'),
-  department: z.string().min(1),
-  employmentType: z.enum(['Regular', 'Probationary', 'Contractual']),
-  status: z.enum(['active', 'on_leave', 'resigned']),
-  monthlyBasic: z.string().regex(/^\d+(\.\d{1,2})?$/, 'Amount like 25000 or 25000.50'),
-  hireDate: z.string().min(1, 'Required'),
-  taxStatus: z.enum(['S', 'ME', 'S1', 'ME1', 'ME2']),
-})
-
-type FormValues = z.infer<typeof schema>
-
-export function EmployeeDialog({ employee, onClose }: { employee: Employee | null; onClose: () => void }) {
+/** Edit an existing employee. (New employees are added on their own page, which also creates the AZONE account.) */
+export function EmployeeDialog({ employee, onClose }: { employee: Employee; onClose: () => void }) {
   const save = useSaveEmployee()
   const {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: employee ?? {
-      employeeNo: `AZN-${new Date().getFullYear()}-`,
-      department: departments[0],
-      employmentType: 'Probationary',
-      status: 'active',
-      taxStatus: 'S',
-      hireDate: new Date().toISOString().slice(0, 10),
-    },
+  } = useForm<EmployeeFormValues>({
+    resolver: zodResolver(employeeSchema),
+    defaultValues: employee,
   })
 
   const onSubmit = handleSubmit(async (v) => {
     await save.mutateAsync({
       ...v,
-      id: employee?.id,
+      id: employee.id,
       monthlyBasic: Number(v.monthlyBasic).toFixed(2),
-      bank: employee?.bank ?? { name: 'BDO', account: '—' },
-      govIds: employee?.govIds ?? { sss: '—', philhealth: '—', pagibig: '—', tin: '—' },
+      bank: employee.bank,
+      govIds: employee.govIds,
     })
     onClose()
   })
 
   return (
-    <Dialog
-      open
-      onOpenChange={(o) => !o && onClose()}
-      title={employee ? `Edit ${employee.fullName}` : 'Add employee'}
-      description={employee ? `Hired ${formatDate(employee.hireDate)}` : undefined}
-    >
+    <Dialog open onOpenChange={(o) => !o && onClose()} title={`Edit ${employee.fullName}`} description={`Hired ${formatDate(employee.hireDate)}`}>
       <form onSubmit={onSubmit} className="grid grid-cols-2 gap-3">
         <Field label="Employee No." error={errors.employeeNo?.message}>
           <Input {...register('employeeNo')} />
@@ -206,8 +177,10 @@ export function EmployeeDialog({ employee, onClose }: { employee: Employee | nul
         </Field>
         <Field label="Tax status">
           <Select {...register('taxStatus')}>
-            {['S', 'ME', 'S1', 'ME1', 'ME2'].map((t) => (
-              <option key={t}>{t}</option>
+            {taxStatusOptions(employee.taxStatus).map((t) => (
+              <option key={t} value={t}>
+                {taxStatusLabels[t]}
+              </option>
             ))}
           </Select>
         </Field>
@@ -217,7 +190,7 @@ export function EmployeeDialog({ employee, onClose }: { employee: Employee | nul
         <div className="col-span-2 mt-2">
           {save.isError && <p className="mb-2 text-sm text-danger">{save.error.message}</p>}
           <Button type="submit" className="w-full" disabled={save.isPending}>
-            {save.isPending ? 'Saving…' : employee ? 'Save changes' : 'Add employee'}
+            {save.isPending ? 'Saving…' : 'Save changes'}
           </Button>
         </div>
       </form>

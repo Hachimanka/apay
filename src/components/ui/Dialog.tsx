@@ -16,7 +16,8 @@ export function Dialog({ open, onOpenChange, title, description, children }: Dia
     <RD.Root open={open} onOpenChange={onOpenChange}>
       <RD.Portal>
         <RD.Overlay className="fixed inset-0 z-50 bg-navy/40 backdrop-blur-sm dark:bg-black/60" />
-        <RD.Content className="safe-bottom fixed inset-x-0 bottom-0 z-50 max-h-[92dvh] overflow-y-auto rounded-t-3xl bg-surface p-6 shadow-float sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
+        {/* Bottom padding: 1.5rem, or the phone home-bar inset when larger — same as AZONE (a plain safe-area class would set it to 0 on desktop) */}
+        <RD.Content className="fixed inset-x-0 bottom-0 z-50 max-h-[92dvh] overflow-y-auto rounded-t-3xl bg-surface p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-float sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-3xl">
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
               <RD.Title className="text-lg font-bold text-navy">{title}</RD.Title>

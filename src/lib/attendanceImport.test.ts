@@ -35,8 +35,8 @@ describe('parseCsv', () => {
 })
 
 describe('readAttendanceCsv', () => {
-  it('matches by Employee No and keeps only changed rows', () => {
-    const csv = 'Employee No,Name,Present,Absent,Late (min),Paid leave,Unpaid leave\nazn-1,Ana,9,2,15,0,0\nAZN-2,Ben,11,0,0,0,0'
+  it('matches by name only and keeps only changed rows', () => {
+    const csv = 'Employee No,Name,Present,Absent,Late (min),Paid leave,Unpaid leave\nX-1,ana cruz,9,2,15,0,0\nX-2,"Lim, Ben",11,0,0,0,0'
     const r = readAttendanceCsv(csv, roster)
     expect(r.errors).toEqual([])
     expect(r.unchanged).toBe(1)
@@ -46,22 +46,22 @@ describe('readAttendanceCsv', () => {
   })
 
   it('fills in a blank Present and treats missing columns as 0', () => {
-    const r = readAttendanceCsv('emp no,absent,lwop\nAZN-3,1,0.5', roster)
+    const r = readAttendanceCsv('full name,absent,lwop\nCara Tan,1,0.5', roster)
     expect(r.changes[0].input).toMatchObject({ daysPresent: 9.5, absentDays: 1, unpaidLeaveDays: 0.5, lateMinutes: 0 })
   })
 
   it('reports unknown employees, duplicates, bad numbers and totals that do not add up', () => {
-    const csv = ['Employee No,Present,Absent', 'AZN-9,11,0', 'AZN-1,10,1', 'AZN-1,10,1', 'AZN-2,10,0.3', 'AZN-3,10,0'].join('\n')
+    const csv = ['Name,Present,Absent', 'Nobody,11,0', 'Ana Cruz,10,1', 'Ana Cruz,10,1', 'Ben Lim,10,0.3', 'Cara Tan,10,0'].join('\n')
     const r = readAttendanceCsv(csv, roster)
     expect(r.changes).toHaveLength(1)
     expect(r.errors).toHaveLength(4)
-    expect(r.errors[0]).toMatch(/Row 2: no active employee/)
+    expect(r.errors[0]).toMatch(/Row 2: no active employee named "Nobody"/)
     expect(r.errors[1]).toMatch(/more than once/)
     expect(r.errors[2]).toMatch(/whole or half/)
     expect(r.errors[3]).toMatch(/must equal 11 working days/)
   })
 
   it('rejects a file without the key columns', () => {
-    expect(readAttendanceCsv('Name,Present\nAna,11', roster).errors[0]).toMatch(/Employee No/)
+    expect(readAttendanceCsv('Employee No,Present\nAZN-1,11', roster).errors[0]).toMatch(/"Name" column/)
   })
 })

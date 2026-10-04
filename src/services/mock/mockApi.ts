@@ -1,5 +1,17 @@
 import { computeCutoff, sum } from '@/lib/payroll'
-import type { ApayApi, AttendanceInput, AttendanceRow, Employee, PayrollLine, PayrollPeriod, PeriodStatus } from '../types'
+import { emptyPunches, manilaToday, punchError } from '@/lib/timeRecords'
+import type {
+  ApayApi,
+  AttendanceInput,
+  AttendanceRow,
+  AzoneRequest,
+  DailyRow,
+  Employee,
+  PayrollLine,
+  PayrollPeriod,
+  PeriodStatus,
+  Punches,
+} from '../types'
 import * as db from './data'
 
 /** In-memory stand-in for aznar-api so APAY works before the backend exists. */
@@ -16,6 +28,17 @@ class ApiError extends Error {
 }
 
 const lines = new Map<string, PayrollLine[]>()
+
+/** Daily punches HR entered, keyed `${date}|${employeeId}`. (The mock's cut-off totals stay seeded; the real API derives them from these.) */
+const timeRecords = new Map<string, Punches & { source: 'manual' | 'upload' }>()
+const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3))
+
+function hoursOf(p: Punches) {
+  if (!p.timeIn || !p.timeOut) return 0
+  const span = (toMin(p.timeOut) - toMin(p.timeIn) + 1440) % 1440
+  const brk = p.breakOut && p.breakIn ? (toMin(p.breakIn) - toMin(p.breakOut) + 1440) % 1440 : 60
+  return Math.max(0, Math.round(((span - brk) / 60) * 10) / 10)
+}
 let actor = 'Demo User'
 
 function findPeriod(id: string) {
@@ -102,30 +125,60 @@ const nextStatus: Record<PeriodStatus, PeriodStatus | null> = {
 }
 
 export const mockApi: ApayApi = {
+  requestPasswordReset: () => wait(undefined, 700),
+  async resetPassword(token, password) {
+    if (token.length < 20) throw new ApiError('This reset link is invalid or has expired. Request a new one.')
+    if (password.length < 8) throw new ApiError('Use at least 8 characters')
+    return wait(undefined, 600)
+  },
+
   async login(email) {
     actor = 'Ana Cruz'
     return wait({ token: `mock.${btoa(email)}`, user: { id: 'usr_hr', name: 'Ana Cruz', email, role: 'hr', title: 'HR Manager' } }, 600)
   },
 
-  listEmployees: () => wait(db.employees),
+  listEmployees: () => wait(db.employees.map((e) => ({ ...e, avatarVersion: demoPhoto(e.id) ? '2026-10-01T00:00:00.000Z' : null }))),
   async getEmployee(id) {
     const e = db.employees.find((x) => x.id === id)
     if (!e) throw new ApiError('Employee not found', 404)
-    return wait(e)
+    // Demo stand-ins for what the employee would keep up to date in AZONE (no photos in demo mode)
+    const n = Number(e.employeeNo.replace(/\D/g, '').slice(-3)) || 1
+    return wait({
+      ...e,
+      phone: `0917 ${String(100 + (n % 900)).padStart(3, '0')} ${String(1000 + n).slice(-4)}`,
+      address: `${(n % 90) + 10} Osmeña Blvd, Cebu City`,
+      birthday: `199${n % 10}-${String((n % 12) + 1).padStart(2, '0')}-${String((n % 27) + 1).padStart(2, '0')}`,
+      manager: e.department === 'HR Department' ? 'Ana Cruz' : 'Maria Santos',
+      workSchedule: 'Mon–Fri · 8:00 AM – 5:00 PM',
+      emergencyContact: {
+        name: `${e.firstName === 'Rosa' ? 'Jose' : 'Rosa'} ${e.lastName}`,
+        relation: 'Parent',
+        phone: `0918 ${String(200 + (n % 700))} ${String(5000 + n).slice(-4)}`,
+      },
+      avatarUrl: demoPhoto(e.id),
+    })
   },
+  getEmployeeAvatar: async (id) => wait({ dataUrl: demoPhoto(id) }, 150),
+  async createEmployee(input) {
+    const email = input.email.toLowerCase()
+    if (db.employees.some((x) => x.employeeNo === input.employeeNo)) throw new ApiError(`Employee No. ${input.employeeNo} is already used`, 409)
+    if (db.employees.some((x) => x.email.toLowerCase() === email))
+      throw new ApiError(`An account with ${email} already exists — use a different work email`, 409)
+    const created: Employee = { ...input, email, id: `emp_${Date.now()}`, fullName: `${input.firstName} ${input.lastName}` }
+    db.employees.push(created)
+    log('Added employee and AZONE account', created.fullName)
+    const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+    const temporaryPassword = Array.from(crypto.getRandomValues(new Uint32Array(12)), (n) => alphabet[n % alphabet.length]).join('')
+    return wait({ employee: created, account: { email, temporaryPassword } }, 700)
+  },
+
   async saveEmployee(input) {
     const fullName = `${input.firstName} ${input.lastName}`
-    if (input.id) {
-      const e = db.employees.find((x) => x.id === input.id)
-      if (!e) throw new ApiError('Employee not found', 404)
-      Object.assign(e, input, { fullName })
-      log('Updated employee', fullName)
-      return wait(e, 500)
-    }
-    const created: Employee = { ...input, id: `emp_${Date.now()}`, fullName }
-    db.employees.push(created)
-    log('Added employee', fullName)
-    return wait(created, 500)
+    const e = db.employees.find((x) => x.id === input.id)
+    if (!e) throw new ApiError('Employee not found', 404)
+    Object.assign(e, input, { fullName })
+    log('Updated employee', fullName)
+    return wait(e, 500)
   },
 
   listPeriods: () => wait(db.periods),
@@ -155,6 +208,68 @@ export const mockApi: ApayApi = {
     log('Reset attendance to DTR', p.label)
     return wait(attendanceFor(p), 400)
   },
+  async getDailyAttendance(date) {
+    const p = db.periods.find((x) => x.start <= date && date <= x.end) ?? null
+    const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+    const weekend = day === 0 || day === 6
+    const today = manilaToday()
+    return wait({
+      date,
+      holiday: false,
+      weekend,
+      shift: { timeIn: '08:00', breakOut: '12:00', breakIn: '13:00', timeOut: '17:00' },
+      period: p && { id: p.id, label: p.label, status: p.status },
+      rows: db.employees
+        .filter((e) => e.status !== 'resigned' && e.hireDate <= date)
+        .map((e) => {
+          const r = timeRecords.get(`${date}|${e.id}`)
+          const lateBy = r?.timeIn ? toMin(r.timeIn) - 8 * 60 : 0
+          const late = lateBy > db.settings.graceMinutes ? lateBy : 0
+          return {
+            employeeId: e.id,
+            employeeNo: e.employeeNo,
+            name: e.fullName,
+            department: e.department,
+            ...(r ?? emptyPunches),
+            source: r?.source ?? null,
+            status: r?.timeIn
+              ? late
+                ? 'late'
+                : 'present'
+              : e.status === 'on_leave'
+                ? 'leave'
+                : weekend
+                  ? 'rest'
+                  : date < today
+                    ? 'absent'
+                    : 'pending',
+            lateMinutes: late,
+            hoursWorked: r ? hoursOf(r) : 0,
+            cutoffOverridden: !!p && overrides.has(`${p.id}|${e.id}`),
+          } satisfies DailyRow
+        }),
+    })
+  },
+
+  async saveTimeRecords(source, rows) {
+    const today = manilaToday()
+    for (const r of rows) {
+      if (r.date > today) throw new ApiError(`${r.date}: time records can’t be entered for future days`)
+      const problem = punchError(r)
+      if (problem) throw new ApiError(`${r.date}: ${problem}`)
+    }
+    const dates = [...new Set(rows.map((r) => r.date))].sort()
+    for (const p of db.periods.filter((x) => dates.some((d) => x.start <= d && d <= x.end))) reopenForAttendance(p.id)
+    let saved = 0
+    let cleared = 0
+    for (const { employeeId, date, ...punches } of rows) {
+      if (!punches.timeIn) cleared += Number(timeRecords.delete(`${date}|${employeeId}`))
+      else (timeRecords.set(`${date}|${employeeId}`, { ...punches, source }), saved++)
+    }
+    log(source === 'upload' ? 'Uploaded time records' : 'Edited time records', `${dates.join(', ')} · ${saved} saved`)
+    return wait({ saved, cleared, dates }, 500)
+  },
+
   getPayrollLines: async (periodId) => wait(lines.get(periodId) ?? []),
 
   async computePayroll(periodId) {
@@ -215,6 +330,37 @@ export const mockApi: ApayApi = {
   },
 
   listLeaves: () => wait(db.leaves),
+  async decideLeave(id, status) {
+    const l = db.leaves.find((x) => x.id === id)
+    if (!l || l.status !== 'pending') throw new ApiError('Pending leave not found', 404)
+    l.status = status
+    log(status === 'approved' ? 'Approved leave' : 'Rejected leave', l.employeeName)
+    return wait(l, 400)
+  },
+
+  listRequests: () => wait(demoRequests),
+  async decideRequest(id, status, ot) {
+    const r = demoRequests.find((x) => x.id === id)
+    if (!r || r.status !== 'pending') throw new ApiError('Pending request not found', 404)
+    if (status === 'approved' && r.kind === 'overtime') {
+      if (!ot) throw new ApiError('Enter the overtime date, hours and type to approve it')
+      db.overtime.unshift({
+        id: `ot_${Date.now()}`,
+        employeeId: r.employeeId,
+        employeeName: r.employeeName,
+        department: r.department,
+        ...ot,
+        reason: r.details,
+        status: 'approved',
+        requestId: r.id,
+      })
+      r.overtime = ot
+    }
+    r.status = status
+    r.decidedBy = actor
+    log(`${status === 'approved' ? 'Approved' : 'Rejected'} ${r.title.toLowerCase()}`, r.employeeName)
+    return wait(r, 400)
+  },
 
   listAnnouncements: () => wait(db.announcements),
   async saveAnnouncement(input) {
@@ -238,3 +384,36 @@ export const mockApi: ApayApi = {
 
   listAudit: () => wait(db.audit, 200),
 }
+
+/** Demo stand-in for AZONE profile photos: two employees get a simple drawn portrait, everyone else shows initials. */
+function demoPhoto(employeeId: string) {
+  const e = db.employees.find((x) => x.id === employeeId)
+  if (!e || !['Leonard', 'Maria'].includes(e.firstName)) return null
+  const bg = e.firstName === 'Leonard' ? '#1557e0' : '#eb6834'
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${bg}"/><circle cx="32" cy="25" r="12" fill="#ffe0c2"/><path d="M10 64c2-14 12-21 22-21s20 7 22 21z" fill="#fff"/></svg>`
+  return `data:image/svg+xml;base64,${btoa(svg)}`
+}
+
+/** Demo AZONE requests (in the real app employees file these under AZONE → Requests). */
+const demoRequests: AzoneRequest[] = (
+  [
+    ['Leonard', 'overtime', 'Overtime Request', 'Stayed 3 hours after shift to finish the month-end report.', 0],
+    ['Maria', 'coe', 'Certificate of Employment', 'Needed for a bank loan application, please include compensation.', 1],
+    ['Jasmine', 'schedule_change', 'Schedule Change', 'Requesting 10 AM – 7 PM for two weeks while my child’s school schedule changes.', 2],
+    ['Camille', 'maternity_leave', 'Maternity Leave', 'Expected delivery on Nov 20; planning 105 days starting Nov 10.', 3],
+    ['Joshua', 'other', 'Other Request', 'Requesting a replacement company ID — the old one was damaged.', 4],
+  ] as const
+).map(([first, kind, title, details, i]) => {
+  const e = db.employees.find((x) => x.firstName === first) ?? db.employees[i]
+  return {
+    id: `req_${i}`,
+    employeeId: e.id,
+    employeeName: e.fullName,
+    department: e.department,
+    kind,
+    title,
+    details,
+    status: 'pending' as const,
+    filedAt: new Date(Date.now() - (i + 1) * 5 * 3600 * 1000).toISOString(),
+  }
+})

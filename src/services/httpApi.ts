@@ -36,19 +36,22 @@ const json = (body: unknown) => JSON.stringify(body)
 /** Real aznar-api adapter — APAY routes live under /apay, auth under /auth. */
 export const httpApi: ApayApi = {
   login: (email, password) => request<Session>('/auth/login', { method: 'POST', body: json({ email, password, app: 'apay' }) }),
+  requestPasswordReset: (email) => request('/auth/apay/forgot-password', { method: 'POST', body: json({ email }) }),
+  resetPassword: (token, password) => request('/auth/apay/reset-password', { method: 'POST', body: json({ token, password }) }),
 
   listEmployees: () => request('/apay/employees'),
   getEmployee: (id) => request(`/apay/employees/${id}`),
-  saveEmployee: (input) =>
-    input.id
-      ? request(`/apay/employees/${input.id}`, { method: 'PUT', body: json(input) })
-      : request('/apay/employees', { method: 'POST', body: json(input) }),
+  getEmployeeAvatar: (id) => request(`/apay/employees/${id}/avatar`),
+  createEmployee: (input) => request('/apay/employees', { method: 'POST', body: json(input) }),
+  saveEmployee: (input) => request(`/apay/employees/${input.id}`, { method: 'PUT', body: json(input) }),
 
   listPeriods: () => request('/apay/periods'),
   getPeriod: (id) => request(`/apay/periods/${id}`),
   getAttendance: (id) => request(`/apay/periods/${id}/attendance`),
   saveAttendance: (id, source, rows) => request(`/apay/periods/${id}/attendance`, { method: 'PUT', body: json({ source, rows }) }),
   resetAttendance: (id, employeeId) => request(`/apay/periods/${id}/attendance/${employeeId}`, { method: 'DELETE' }),
+  getDailyAttendance: (date) => request(`/apay/attendance/daily?date=${date}`),
+  saveTimeRecords: (source, rows) => request('/apay/attendance/daily', { method: 'PUT', body: json({ source, rows }) }),
   getPayrollLines: (id) => request(`/apay/periods/${id}/lines`),
   computePayroll: (id) => request(`/apay/periods/${id}/compute`, { method: 'POST' }),
   setPeriodStatus: (id, status) => request(`/apay/periods/${id}/status`, { method: 'POST', body: json({ status }) }),
@@ -63,6 +66,10 @@ export const httpApi: ApayApi = {
   decideOvertime: (id, status) => request(`/apay/overtime/${id}/decision`, { method: 'POST', body: json({ status }) }),
 
   listLeaves: () => request('/apay/leaves'),
+  decideLeave: (id, status) => request(`/apay/leaves/${id}/decision`, { method: 'POST', body: json({ status }) }),
+
+  listRequests: () => request('/apay/requests'),
+  decideRequest: (id, status, overtime) => request(`/apay/requests/${id}/decision`, { method: 'POST', body: json({ status, overtime }) }),
 
   listAnnouncements: () => request('/apay/announcements'),
   saveAnnouncement: (input) =>

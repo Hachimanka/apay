@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { motion } from 'motion/react'
 import { formatDistanceToNowStrict } from 'date-fns'
-import { ArrowRight, Banknote, CalendarRange, ChartColumn, History, Landmark, Timer, Users } from 'lucide-react'
+import { ArrowRight, Banknote, CalendarRange, ChartColumn, History, Inbox, Landmark, Users } from 'lucide-react'
 import { StatCard } from '@/components/ui/StatCard'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Misc'
@@ -9,7 +9,7 @@ import { buttonVariants } from '@/components/ui/Button'
 import { PesoBarChart, PesoHBarChart } from '@/components/charts/Charts'
 import { PeriodStatusBadge } from '@/components/shared/StatusBadges'
 import { PayrollStepper } from '@/components/shared/PayrollStepper'
-import { useAudit, useEmployees, useOvertime, usePayrollLines, usePeriods } from '@/services/queries'
+import { useAudit, useEmployees, useLeaves, useOvertime, usePayrollLines, usePeriods, useRequests } from '@/services/queries'
 import { useAuth } from '@/store/auth'
 import { formatDate, formatPeso, greeting } from '@/lib/format'
 import { roleLabels } from '@/lib/permissions'
@@ -25,6 +25,8 @@ export function DashboardPage() {
   const periods = usePeriods()
   const employees = useEmployees()
   const overtime = useOvertime()
+  const leaves = useLeaves()
+  const requests = useRequests()
   const audit = useAudit()
 
   const current = periods.data?.find((p) => p.status !== 'released')
@@ -32,7 +34,13 @@ export function DashboardPage() {
   const lines = usePayrollLines(lastReleased?.id ?? '')
 
   const active = employees.data?.filter((e) => e.status !== 'resigned').length
-  const pendingOt = overtime.data?.filter((o) => o.status === 'pending').length
+  // Everything waiting in the Requests inbox (AZONE leaves, overtime and other requests)
+  const pendingRequests =
+    overtime.data && leaves.data && requests.data
+      ? overtime.data.filter((o) => o.status === 'pending' && !o.requestId).length +
+        leaves.data.filter((l) => l.status === 'pending').length +
+        requests.data.filter((r) => r.status === 'pending').length
+      : undefined
 
   const trend = [...(periods.data ?? [])]
     .filter((p) => p.status === 'released')
@@ -66,7 +74,7 @@ export function DashboardPage() {
       hint: 'Last released cut-off',
       to: '/app/government',
     },
-    { icon: Timer, label: 'Pending Overtime', value: pendingOt ?? null, hint: 'Awaiting approval', to: '/app/overtime' },
+    { icon: Inbox, label: 'Pending Requests', value: pendingRequests ?? null, hint: 'Leaves, overtime & more from AZONE', to: '/app/requests' },
   ]
 
   return (

@@ -7,9 +7,8 @@ import {
   Landmark,
   LayoutDashboard,
   Megaphone,
-  PlaneTakeoff,
+  Inbox,
   Settings,
-  Timer,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -24,8 +23,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { to: '/app/employees', label: 'Employees', icon: Users },
       { to: '/app/attendance', label: 'Attendance & DTR', icon: Clock },
-      { to: '/app/overtime', label: 'Overtime', icon: Timer },
-      { to: '/app/leave-impact', label: 'Leave Impact', icon: PlaneTakeoff },
+      { to: '/app/requests', label: 'Requests', icon: Inbox },
     ],
   },
   {

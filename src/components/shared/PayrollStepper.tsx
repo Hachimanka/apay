@@ -6,7 +6,7 @@ export const payrollSteps: { status: PeriodStatus; label: string; hint: string }
   { status: 'draft', label: 'Draft', hint: 'Collect attendance' },
   { status: 'computed', label: 'Compute', hint: 'Run the engine' },
   { status: 'review', label: 'Review', hint: 'Check every line' },
-  { status: 'approved', label: 'Approve', hint: 'Finance sign-off' },
+  { status: 'approved', label: 'Approve', hint: 'Final HR sign-off' },
   { status: 'released', label: 'Release', hint: 'Publish to AZONE' },
 ]
 

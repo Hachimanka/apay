@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/Misc'
 import { PayrollStepper } from '@/components/shared/PayrollStepper'
 import { PeriodStatusBadge } from '@/components/shared/StatusBadges'
 import { PayslipView } from '@/components/shared/PayslipView'
+import { PresentDays } from '@/components/shared/PresentDays'
 import { useAttendance, useComputePayroll, usePayrollLines, usePeriod, useSetPeriodStatus } from '@/services/queries'
 import type { AttendanceRow, PayrollLine, PeriodStatus } from '@/services/types'
 import { useAuth } from '@/store/auth'
@@ -65,7 +66,7 @@ const attendanceColumns: ColumnDef<AttendanceRow>[] = [
     accessorKey: 'daysPresent',
     header: 'Present',
     meta: { align: 'right' },
-    cell: ({ row }) => `${row.original.daysPresent} / ${row.original.workingDays}`,
+    cell: ({ row }) => <PresentDays row={row.original} />,
   },
   { accessorKey: 'absentDays', header: 'Absent', meta: { align: 'right' } },
   { accessorKey: 'lateMinutes', header: 'Late (min)', meta: { align: 'right' } },
@@ -117,7 +118,7 @@ export function PeriodDetailPage() {
             setConfirm({
               status: 'review',
               title: 'Submit for review?',
-              description: 'Finance and management will be able to review and approve this payroll.',
+              description: 'Check the register once more, then approve it. Approved payroll is locked and can no longer be recomputed.',
               cta: 'Submit for review',
             })
           }

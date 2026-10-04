@@ -1,6 +1,21 @@
 import { useMemo, useState, type ChangeEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { ColumnDef } from '@tanstack/react-table'
-import { AlertTriangle, CalendarCheck, CalendarX, Clock, Download, FileUp, Lock, Pencil, RotateCcw, Timer, Upload } from 'lucide-react'
+import {
+  AlertTriangle,
+  CalendarCheck,
+  CalendarDays,
+  CalendarX,
+  Clock,
+  Download,
+  FileUp,
+  Lock,
+  Pencil,
+  RotateCcw,
+  Sigma,
+  Timer,
+  Upload,
+} from 'lucide-react'
 import { PageHeader } from '@/components/ui/Misc'
 import { DataTable } from '@/components/ui/DataTable'
 import { Card } from '@/components/ui/Card'
@@ -16,6 +31,10 @@ import { useAuth } from '@/store/auth'
 import { can } from '@/lib/permissions'
 import { downloadCsv } from '@/lib/csv'
 import { attendanceTemplate, readAttendanceCsv, type ImportResult } from '@/lib/attendanceImport'
+import { cn } from '@/lib/cn'
+import { DailyTimeRecords } from '@/features/attendance/DailyTimeRecords'
+import { EmployeeFilter } from '@/components/shared/EmployeeFilter'
+import { PresentDays, attendanceRate } from '@/components/shared/PresentDays'
 
 const sourceBadge = { manual: 'Edited', upload: 'Uploaded' } as const
 
@@ -43,11 +62,7 @@ function buildColumns(onEdit?: (r: AttendanceRow) => void): ColumnDef<Attendance
       accessorKey: 'daysPresent',
       header: 'Present',
       meta: { align: 'right' },
-      cell: ({ row }) => (
-        <span className="font-semibold text-navy">
-          {row.original.daysPresent} <span className="font-normal text-muted">/ {row.original.workingDays}</span>
-        </span>
-      ),
+      cell: ({ row }) => <PresentDays row={row.original} />,
     },
     {
       accessorKey: 'absentDays',
@@ -102,9 +117,48 @@ function buildColumns(onEdit?: (r: AttendanceRow) => void): ColumnDef<Attendance
   return cols
 }
 
+const views = [
+  { id: 'daily', label: 'Daily time records', icon: CalendarDays },
+  { id: 'summary', label: 'Cut-off summary', icon: Sigma },
+] as const
+
 export function AttendancePage() {
+  const [params, setParams] = useSearchParams()
+  const view = params.get('view') === 'summary' ? 'summary' : 'daily'
+  // Shared by both tabs, so the chosen employees stay picked when switching days or tabs
+  const [picked, setPicked] = useState<string[]>([])
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Time"
+        title="Attendance & DTR"
+        description="Enter each day’s time in and out, or import a file. Payroll uses the cut-off totals built from these records."
+      />
+      <div className="mb-5 flex gap-1 rounded-xl bg-surface p-1 shadow-card sm:inline-flex">
+        {views.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setParams(id === 'daily' ? {} : { view: id }, { replace: true })}
+            className={cn(
+              'flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold whitespace-nowrap transition',
+              view === id ? 'bg-primary text-white' : 'text-ink hover:bg-primary-50 hover:text-primary',
+            )}
+          >
+            <Icon className="size-4" /> {label}
+          </button>
+        ))}
+      </div>
+      {view === 'daily' ? <DailyTimeRecords picked={picked} onPick={setPicked} /> : <CutoffSummary picked={picked} onPick={setPicked} />}
+    </>
+  )
+}
+
+/** Per-employee totals for a whole cut-off (what payroll computes from), with HR's direct edits and uploads. */
+function CutoffSummary({ picked, onPick }: { picked: string[]; onPick: (ids: string[]) => void }) {
   const [periodId, setPeriodId] = useState('')
   const { data, isLoading } = useAttendance(periodId)
+  const shown = useMemo(() => (data && picked.length ? data.filter((r) => picked.includes(r.employeeId)) : data), [data, picked])
   const { data: period } = usePeriod(periodId)
   const role = useAuth((s) => s.session?.user.role)
   const [editing, setEditing] = useState<AttendanceRow | null>(null)
@@ -114,14 +168,15 @@ export function AttendancePage() {
   const open = period?.status === 'draft' || period?.status === 'computed'
   const editable = canManage && open
   const columns = useMemo(() => buildColumns(editable ? setEditing : undefined), [editable])
-  const totals = (k: keyof AttendanceRow) => (data ?? []).reduce((s, r) => s + (r[k] as number), 0)
+  const totals = (k: keyof AttendanceRow) => (shown ?? []).reduce((s, r) => s + (r[k] as number), 0)
 
   const stats = [
     {
       icon: CalendarCheck,
       tone: 'success' as const,
       label: 'Attendance rate',
-      value: data?.length ? `${Math.round((totals('daysPresent') / totals('workingDays')) * 100)}%` : '—',
+      // Only days that have already happened count — upcoming ones are assumed present
+      value: shown?.length && attendanceRate(shown) !== null ? `${attendanceRate(shown)}%` : '—',
     },
     { icon: CalendarX, tone: 'danger' as const, label: 'Absences', value: totals('absentDays') },
     { icon: Clock, tone: 'warning' as const, label: 'Late minutes', value: totals('lateMinutes') },
@@ -130,21 +185,20 @@ export function AttendancePage() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Time"
-        title="Attendance & DTR"
-        description="Daily time records from AZONE and biometrics, summarised per cut-off for payroll."
-        actions={
-          <>
-            <PeriodSelect value={periodId} onChange={setPeriodId} />
-            {editable && (
-              <Button onClick={() => setUploading(true)} disabled={!data}>
-                <Upload className="size-4" /> Upload attendance
-              </Button>
-            )}
-          </>
-        }
-      />
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <PeriodSelect value={periodId} onChange={setPeriodId} />
+        <EmployeeFilter
+          options={(data ?? []).map((r) => ({ id: r.employeeId, name: r.name, department: r.department }))}
+          value={picked}
+          onChange={onPick}
+        />
+        {editable && (
+          <Button variant="outline" onClick={() => setUploading(true)} disabled={!data}>
+            <Upload className="size-4" /> Upload cut-off totals
+          </Button>
+        )}
+        <p className="text-xs text-muted sm:ml-2">Built from the daily time records. Edit a row only to override a whole cut-off.</p>
+      </div>
       {canManage && period && !open && (
         <p className="mb-5 flex items-center gap-2 rounded-xl bg-primary-50 px-4 py-3 text-sm font-medium text-primary">
           <Lock className="size-4 shrink-0" /> This cut-off’s payroll is already {period.status}, so its attendance is locked.
@@ -162,7 +216,7 @@ export function AttendancePage() {
         ))}
       </div>
       <DataTable
-        data={data}
+        data={shown}
         columns={columns}
         loading={isLoading || !periodId}
         searchPlaceholder="Search employee…"
@@ -306,7 +360,7 @@ function UploadDialog({ period, rows, onClose }: { period: PayrollPeriod; rows: 
       open
       onOpenChange={(o) => !o && onClose()}
       title="Upload attendance"
-      description={`${period.label} · one row per employee, matched by Employee No`}
+      description={`${period.label} · one row per employee, matched by name`}
     >
       <RecomputeNote period={period} />
       <ol className="mb-4 space-y-1.5 text-sm text-ink">

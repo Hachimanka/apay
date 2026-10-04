@@ -1,6 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
-import type { AdjustmentInput, AnnouncementInput, ApprovalStatus, AttendanceInput, EmployeeInput, PayrollSettings, PeriodStatus } from './types'
+import type {
+  AdjustmentInput,
+  AnnouncementInput,
+  ApprovalStatus,
+  AttendanceInput,
+  EmployeeInput,
+  OvertimeKind,
+  TimeRecordInput,
+  PayrollSettings,
+  PeriodStatus,
+} from './types'
 
 export const keys = {
   employees: ['employees'] as const,
@@ -15,6 +25,7 @@ export const keys = {
   announcements: ['announcements'] as const,
   settings: ['settings'] as const,
   audit: ['audit'] as const,
+  daily: (date: string) => ['daily', date] as const,
 }
 
 export const useEmployees = () => useQuery({ queryKey: keys.employees, queryFn: api.listEmployees })
@@ -37,7 +48,7 @@ function useInvalidate() {
 
 export function useSaveEmployee() {
   const invalidate = useInvalidate()
-  return useMutation({ mutationFn: (input: EmployeeInput) => api.saveEmployee(input), onSuccess: () => invalidate(keys.employees) })
+  return useMutation({ mutationFn: (input: EmployeeInput & { id: string }) => api.saveEmployee(input), onSuccess: () => invalidate(keys.employees) })
 }
 
 export function useComputePayroll() {
@@ -91,5 +102,60 @@ export function useResetAttendance() {
   return useMutation({
     mutationFn: ({ periodId, employeeId }: { periodId: string; employeeId: string }) => api.resetAttendance(periodId, employeeId),
     onSuccess: () => invalidate(keys.periods),
+  })
+}
+
+export const useDailyAttendance = (date: string) =>
+  useQuery({ queryKey: keys.daily(date), queryFn: () => api.getDailyAttendance(date), enabled: !!date })
+
+/** Daily punches feed the cut-off totals and can reset a computed payroll, so refresh periods too. */
+export function useSaveTimeRecords() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: ({ source, rows }: { source: 'manual' | 'upload'; rows: TimeRecordInput[] }) => api.saveTimeRecords(source, rows),
+    onSuccess: () => invalidate(['daily'], keys.periods),
+  })
+}
+
+/** Adds an employee and their AZONE login together. */
+export function useCreateEmployee() {
+  const invalidate = useInvalidate()
+  return useMutation({ mutationFn: (input: EmployeeInput) => api.createEmployee(input), onSuccess: () => invalidate(keys.employees) })
+}
+
+/** An employee's AZONE photo. Keyed by its version, so a new photo is fetched once and then served from cache. */
+export const useEmployeeAvatar = (id: string, version: string | null | undefined) =>
+  useQuery({
+    queryKey: ['employees', id, 'avatar', version],
+    queryFn: () => api.getEmployeeAvatar(id),
+    enabled: !!version,
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
+  })
+
+export const useRequests = () => useQuery({ queryKey: ['requests'], queryFn: api.listRequests })
+
+/** Decisions change what payroll pays (leave days, overtime hours), so refresh periods as well. */
+export function useDecideLeave() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: ({ id, status }: { id: string; status: Exclude<ApprovalStatus, 'pending'> }) => api.decideLeave(id, status),
+    onSuccess: () => invalidate(keys.leaves, keys.periods),
+  })
+}
+
+export function useDecideRequest() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: ({
+      id,
+      status,
+      overtime,
+    }: {
+      id: string
+      status: Exclude<ApprovalStatus, 'pending'>
+      overtime?: { date: string; hours: number; kind: OvertimeKind }
+    }) => api.decideRequest(id, status, overtime),
+    onSuccess: () => invalidate(['requests'], keys.overtime, keys.periods),
   })
 }

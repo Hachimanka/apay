@@ -132,6 +132,9 @@ export function workingDays(start: string, end: string) {
 export function buildAttendance(period: PayrollPeriod): AttendanceRow[] {
   const r = rng(Number(period.end.replaceAll('-', '')))
   const wd = workingDays(period.start, period.end)
+  // Weekdays from today to the end of the cut-off haven't happened yet (counted present, shown as upcoming)
+  const today = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10)
+  const upcoming = today > period.end ? 0 : workingDays(today < period.start ? period.start : today, period.end)
   return employees
     .filter((e) => e.status !== 'resigned')
     .map((e) => {
@@ -153,6 +156,7 @@ export function buildAttendance(period: PayrollPeriod): AttendanceRow[] {
         overtimeHours,
         paidLeaveDays,
         unpaidLeaveDays,
+        upcomingDays: Math.min(upcoming, wd - absentDays - unpaidLeaveDays - paidLeaveDays),
         source: 'dtr' as const,
       }
     })

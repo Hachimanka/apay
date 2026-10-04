@@ -7,8 +7,8 @@ import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Field, Input } from '@/components/ui/Field'
 import { useAudit, useSaveSettings, useSettings } from '@/services/queries'
-import type { PayrollSettings, Role } from '@/services/types'
-import { roleLabels, rolePermissions, type Permission } from '@/lib/permissions'
+import type { PayrollSettings } from '@/services/types'
+import { rolePermissions, type Permission } from '@/lib/permissions'
 
 const permissionLabels: Record<Permission, string> = {
   'employees.manage': 'Manage employees',
@@ -67,7 +67,6 @@ export function SettingsPage() {
                   <Input type="number" min={1} {...register('roundLateTo')} />
                 </Field>
               </div>
-              <Toggle label="Require Finance approval before release" {...register('requireTwoStepApproval')} />
               <Toggle label="Publish released payslips to AZONE automatically" {...register('autoPublishToAzone')} />
               <Button type="submit" disabled={save.isPending || !formState.isDirty}>
                 {save.isSuccess && !formState.isDirty ? <Check className="size-4" /> : <Save className="size-4" />}
@@ -78,37 +77,18 @@ export function SettingsPage() {
         </Card>
 
         <Card className="p-5 sm:p-6">
-          <CardHeader icon={KeyRound} title="Roles & permissions" />
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[460px] text-sm">
-              <thead className="text-xs text-muted">
-                <tr>
-                  <th className="py-2 text-left font-semibold">Permission</th>
-                  {(Object.keys(roleLabels) as Role[]).map((r) => (
-                    <th key={r} className="px-2 py-2 text-center font-semibold">
-                      {roleLabels[r]}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {(Object.keys(permissionLabels) as Permission[]).map((p) => (
-                  <tr key={p}>
-                    <td className="py-2.5 text-ink">{permissionLabels[p]}</td>
-                    {(Object.keys(roleLabels) as Role[]).map((r) => (
-                      <td key={r} className="px-2 py-2.5 text-center">
-                        {rolePermissions[r].includes(p) ? (
-                          <Check className="mx-auto size-4 text-success" aria-label="Allowed" />
-                        ) : (
-                          <span className="text-line">—</span>
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <CardHeader icon={KeyRound} title="Access" />
+          <p className="mt-3 text-sm text-muted">
+            APAY is run by the <b className="text-navy">HR department</b> only. Other accounts (Finance, Management, employees) can’t sign in.
+          </p>
+          <ul className="mt-4 divide-y divide-line text-sm">
+            {rolePermissions.hr.map((p) => (
+              <li key={p} className="flex items-center justify-between py-2.5">
+                <span className="text-ink">{permissionLabels[p]}</span>
+                <Check className="size-4 text-success" aria-label="Allowed" />
+              </li>
+            ))}
+          </ul>
         </Card>
       </div>
 

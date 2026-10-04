@@ -136,7 +136,7 @@ function Navbar() {
 function Hero() {
   const benefits = [
     'Statutory deductions computed to the centavo',
-    'Four-step approval before any peso is released',
+    'Review and approval steps before any peso is released',
     'Payslips published straight to employees’ AZONE',
   ]
 
@@ -152,7 +152,7 @@ function Hero() {
             animate={{ opacity: 1, y: 0 }}
             className="inline-flex items-center gap-2 rounded-full border border-primary-100 bg-white px-3 py-1.5 text-xs font-semibold text-primary shadow-card"
           >
-            <Lock className="size-3.5" /> For HR, Payroll, Finance & Management
+            <Lock className="size-3.5" /> For the HR department
           </motion.span>
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
@@ -206,7 +206,7 @@ function Hero() {
               <ShieldCheck className="size-5" />
             </span>
             <span>
-              <span className="block text-[11px] text-muted">Approved by Finance</span>
+              <span className="block text-[11px] text-muted">Approved by HR</span>
               <span className="block text-sm font-bold text-navy">₱492,815 net payroll</span>
             </span>
           </div>
@@ -289,17 +289,17 @@ function Overview() {
           <Reveal delay={0.1}>
             <article className="card card-hover group h-full overflow-hidden">
               <div className="p-8">
-                <span className="text-xs font-bold tracking-wider text-primary uppercase">For Finance & Management</span>
-                <h3 className="mt-2 text-2xl font-bold">Approve with full visibility</h3>
+                <span className="text-xs font-bold tracking-wider text-primary uppercase">Before release</span>
+                <h3 className="mt-2 text-2xl font-bold">Review with full visibility</h3>
                 <p className="mt-3 text-muted">
-                  See totals, government remittances and changes before you sign off. Nothing is released without approval.
+                  See totals, government remittances and changes before you approve. Nothing is released without approval.
                 </p>
               </div>
               <div className="flex h-60 flex-col justify-center gap-3 bg-gradient-to-br from-primary-50 to-primary-100 px-8">
                 {[
                   { icon: Calculator, t: 'Payroll computed · 24 employees', s: 'Done', tone: 'text-success bg-success-50' },
                   { icon: FileCheck2, t: 'Submitted for review', s: 'Done', tone: 'text-success bg-success-50' },
-                  { icon: ShieldCheck, t: 'Finance approval', s: 'Pending', tone: 'text-warning bg-warning-50' },
+                  { icon: ShieldCheck, t: 'HR approval', s: 'Pending', tone: 'text-warning bg-warning-50' },
                 ].map(({ icon: Icon, t, s, tone }, i) => (
                   <div
                     key={t}
@@ -352,8 +352,8 @@ const lifecycle = [
   {
     icon: ShieldCheck,
     tag: 'Approve',
-    title: 'Finance sign-off',
-    text: 'Finance or management approves. Approved payroll is locked and can’t be recomputed.',
+    title: 'Final sign-off',
+    text: 'HR approves after a last look at the register. Approved payroll is locked and can’t be recomputed.',
   },
   {
     icon: Send,
@@ -461,7 +461,7 @@ function Compliance() {
               </span>
               <h3 className="mt-5 text-2xl font-bold">APAY</h3>
               <p className="text-sm font-semibold text-primary">Payroll Platform</p>
-              <p className="mt-3 text-sm text-muted">Where HR and Payroll compute, approve and release.</p>
+              <p className="mt-3 text-sm text-muted">Where HR computes, approves and releases payroll.</p>
             </div>
             <div className="flex flex-col items-center gap-3 py-2 lg:px-4">
               <div className="relative flex size-24 items-center justify-center rounded-full bg-primary-50">
@@ -492,8 +492,8 @@ function Compliance() {
 
 function Security() {
   const points = [
-    { icon: KeyRound, title: 'Role-based access', text: 'Payroll Admin, HR, Finance and Management each see only what they need.' },
-    { icon: ShieldCheck, title: 'Maker–checker approval', text: 'The person who computes payroll is never the one who approves it.' },
+    { icon: KeyRound, title: 'HR-only access', text: 'Only the HR department can sign in. Other staff accounts are refused.' },
+    { icon: ShieldCheck, title: 'Locked once approved', text: 'Payroll goes through review and approval, and can’t be recomputed afterwards.' },
     { icon: History, title: 'Full audit trail', text: 'Every computation, approval, release and setting change is recorded.' },
     { icon: Lock, title: 'Separate from AZONE', text: 'Employees never touch payroll data — they only receive their own payslip.' },
   ]
@@ -528,7 +528,7 @@ function Security() {
               <thead className="text-xs text-muted">
                 <tr>
                   <th className="py-2 text-left font-semibold">Action</th>
-                  {['Payroll', 'HR', 'Finance', 'Mgmt'].map((r) => (
+                  {['HR', 'Employees'].map((r) => (
                     <th key={r} className="py-2 text-center font-semibold">
                       {r}
                     </th>
@@ -537,11 +537,11 @@ function Security() {
               </thead>
               <tbody className="divide-y divide-line">
                 {[
-                  ['Manage employees', [1, 1, 0, 0]],
-                  ['Compute payroll', [1, 0, 0, 0]],
-                  ['Approve payroll', [0, 0, 1, 1]],
-                  ['Release payroll', [1, 0, 1, 0]],
-                  ['View reports', [1, 1, 1, 1]],
+                  ['Manage employees & attendance', [1, 0]],
+                  ['Compute payroll', [1, 0]],
+                  ['Approve & release payroll', [1, 0]],
+                  ['View reports', [1, 0]],
+                  ['See own payslip (AZONE)', [1, 1]],
                 ].map(([label, flags]) => (
                   <tr key={label as string}>
                     <td className="py-2.5 text-ink">{label as string}</td>
@@ -572,7 +572,7 @@ function Contact() {
             center={false}
             eyebrow="Get in touch"
             title="Need access or a walkthrough?"
-            description="Request APAY access for your team or ask the payroll team a question."
+            description="Ask the HR payroll team a question or request a walkthrough of APAY."
           />
           <Reveal className="mt-10 space-y-4">
             {[

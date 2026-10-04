@@ -9,12 +9,14 @@ import { UpdateToast } from '@/components/pwa/UpdateToast'
 // Route-level code splitting: the landing page and each module load on demand
 const LandingPage = lazy(() => import('@/features/landing/LandingPage').then((m) => ({ default: m.LandingPage })))
 const LoginPage = lazy(() => import('@/pages/LoginPage').then((m) => ({ default: m.LoginPage })))
+const ForgotPasswordPage = lazy(() => import('@/pages/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })))
+const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })))
 const DashboardPage = lazy(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 const EmployeesPage = lazy(() => import('@/pages/EmployeesPage').then((m) => ({ default: m.EmployeesPage })))
 const EmployeeDetailPage = lazy(() => import('@/pages/EmployeeDetailPage').then((m) => ({ default: m.EmployeeDetailPage })))
+const AddEmployeePage = lazy(() => import('@/pages/AddEmployeePage').then((m) => ({ default: m.AddEmployeePage })))
 const AttendancePage = lazy(() => import('@/pages/AttendancePage').then((m) => ({ default: m.AttendancePage })))
-const OvertimePage = lazy(() => import('@/pages/OvertimePage').then((m) => ({ default: m.OvertimePage })))
-const LeaveImpactPage = lazy(() => import('@/pages/LeaveImpactPage').then((m) => ({ default: m.LeaveImpactPage })))
+const RequestsPage = lazy(() => import('@/pages/RequestsPage').then((m) => ({ default: m.RequestsPage })))
 const PeriodsPage = lazy(() => import('@/pages/PeriodsPage').then((m) => ({ default: m.PeriodsPage })))
 const PeriodDetailPage = lazy(() => import('@/pages/PeriodDetailPage').then((m) => ({ default: m.PeriodDetailPage })))
 const PayslipsPage = lazy(() => import('@/pages/PayslipsPage').then((m) => ({ default: m.PayslipsPage })))
@@ -51,14 +53,26 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route element={<RequireAuth />}>
             <Route path="/app" element={<AppLayout />}>
               <Route index element={<DashboardPage />} />
               <Route path="employees" element={<EmployeesPage />} />
+              <Route
+                path="employees/new"
+                element={
+                  <Guard permission="employees.manage">
+                    <AddEmployeePage />
+                  </Guard>
+                }
+              />
               <Route path="employees/:id" element={<EmployeeDetailPage />} />
               <Route path="attendance" element={<AttendancePage />} />
-              <Route path="overtime" element={<OvertimePage />} />
-              <Route path="leave-impact" element={<LeaveImpactPage />} />
+              <Route path="requests" element={<RequestsPage />} />
+              {/* Overtime and Leave Impact were merged into Requests */}
+              <Route path="overtime" element={<Navigate to="/app/requests" replace />} />
+              <Route path="leave-impact" element={<Navigate to="/app/requests" replace />} />
               <Route path="periods" element={<PeriodsPage />} />
               <Route path="periods/:id" element={<PeriodDetailPage />} />
               <Route path="payslips" element={<PayslipsPage />} />
