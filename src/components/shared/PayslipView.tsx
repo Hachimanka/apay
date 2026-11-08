@@ -5,8 +5,13 @@ import { formatPeso } from '@/lib/format'
 export function PayslipView({ line, period }: { line: PayrollLine; period: PayrollPeriod }) {
   const earnings = [
     ['Basic Pay', line.basicPay],
+    // Shown only when earned (older payslips don't have them)
+    ...(Number(line.holidayPay ?? 0) > 0 ? [['Holiday / Rest-day Pay', line.holidayPay]] : []),
+    ...(Number(line.nightDiffPay ?? 0) > 0 ? [['Night Differential', line.nightDiffPay]] : []),
     ['Overtime', line.overtimePay],
     ['Allowances', line.allowances],
+    // 13th month, bonuses, leave conversion and other one-time earnings
+    ...(line.extraItems ?? []).map((x) => [x.label, x.amount]),
     ['Absences / Unpaid leave', `-${line.absencesDeduction}`],
     ['Late / Undertime', `-${line.lateDeduction}`],
   ]

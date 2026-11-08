@@ -37,6 +37,27 @@ export const employeeSchema = z.object({
 
 export type EmployeeFormValues = z.infer<typeof employeeSchema>
 
+/** Edit employee: the core fields plus the HRIS profile (skills typed as a comma-separated list). */
+export const employeeEditSchema = employeeSchema.extend({
+  middleName: z.string().trim().max(60),
+  level: z.string().trim().max(60),
+  payBasis: z.enum(['monthly', 'daily']),
+  gender: z.enum(['', 'male', 'female']),
+  civilStatus: z.enum(['', 'single', 'married', 'widowed', 'separated', 'annulled']),
+  birthday: z.string(),
+  address: z.string().trim().max(300, 'Too long'),
+  permanentAddress: z.string().trim().max(300, 'Too long'),
+  spouseName: z.string().trim().max(120),
+  skills: z.string().max(2000),
+  /** '' = company default shift */
+  shiftId: z.string(),
+})
+
+export type EmployeeEditValues = z.infer<typeof employeeEditSchema>
+
+/** "Excel, forklift,  Excel" → ['Excel', 'forklift'] (trimmed, no blanks or duplicates). */
+export const parseSkills = (text: string) => [...new Set(text.split(',').map((s) => s.trim()).filter(Boolean))]
+
 export const newEmployeeDefaults = (): Partial<EmployeeFormValues> => ({
   employeeNo: '', // filled with the next number in sequence once the employee list loads
   department: departments[0],

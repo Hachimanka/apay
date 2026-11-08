@@ -3,7 +3,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus } from 'lucide-react'
+import { HandCoins, Plus } from 'lucide-react'
 import { PageHeader } from '@/components/ui/Misc'
 import { DataTable } from '@/components/ui/DataTable'
 import { Button } from '@/components/ui/Button'
@@ -11,7 +11,8 @@ import { Dialog } from '@/components/ui/Dialog'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { Badge } from '@/components/ui/Badge'
 import { useAdjustments, useEmployees, useSaveAdjustment } from '@/services/queries'
-import type { Adjustment, AdjustmentCategory } from '@/services/types'
+import type { Adjustment, AdjustmentCategory, LoanType } from '@/services/types'
+import { LoanLedger, loanTypeLabels } from '@/features/loans/LoanLedger'
 import { useAuth } from '@/store/auth'
 import { can } from '@/lib/permissions'
 import { formatPeso } from '@/lib/format'
@@ -24,7 +25,7 @@ const categoryLabel: Record<AdjustmentCategory, string> = {
   other: 'Other deduction',
 }
 
-const filters = ['all', 'allowance', 'deduction'] as const
+const filters = ['all', 'allowance', 'deduction', 'loans'] as const
 
 export function AdjustmentsPage() {
   const { data, isLoading } = useAdjustments()
@@ -101,8 +102,13 @@ export function AdjustmentsPage() {
           )
         }
       />
+      {filter === 'loans' && (
+        <div className="mb-3 flex items-center gap-2 text-sm text-muted">
+          <HandCoins className="size-4 text-primary" /> Loan ledger: amount borrowed, balance and every payment deducted from released payslips.
+        </div>
+      )}
       <DataTable
-        data={data?.filter((a) => filter === 'all' || a.kind === filter)}
+        data={data?.filter((a) => filter === 'all' || (filter === 'loans' ? a.category === 'loan' : a.kind === filter))}
         columns={columns}
         loading={isLoading}
         searchPlaceholder="Search employee or item…"
@@ -117,12 +123,13 @@ export function AdjustmentsPage() {
                   filter === f ? 'bg-surface text-primary shadow-card' : 'text-muted hover:text-primary',
                 )}
               >
-                {f === 'all' ? 'All' : `${f}s`}
+                {f === 'all' ? 'All' : f === 'loans' ? 'Loan ledger' : `${f}s`}
               </button>
             ))}
           </div>
         }
       />
+      {filter === 'loans' && <LoanLedger className="mt-5" />}
       {open && <AdjustmentDialog onClose={() => setOpen(false)} />}
     </>
   )
@@ -138,6 +145,12 @@ const schema = z.object({
     .string()
     .regex(/^(\d+(\.\d{1,2})?)?$/, 'Amount like 15000')
     .optional(),
+  loanType: z.enum(['sss', 'pagibig', 'company', 'cash_advance', 'other']).optional(),
+  principal: z
+    .string()
+    .regex(/^(\d+(\.\d{1,2})?)?$/, 'Amount like 20000')
+    .optional(),
+  startDate: z.string().optional(),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -152,9 +165,19 @@ function AdjustmentDialog({ onClose }: { onClose: () => void }) {
     formState: { errors },
   } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: { kind: 'allowance', category: 'taxable', employeeId: '' } })
   const kind = watch('kind')
+  const loan = watch('category') === 'loan'
 
   const onSubmit = handleSubmit(async (v) => {
-    await save.mutateAsync({ ...v, amount: Number(v.amount).toFixed(2), balance: v.balance ? Number(v.balance).toFixed(2) : undefined, active: true })
+    const peso = (x?: string) => (x ? Number(x).toFixed(2) : undefined)
+    await save.mutateAsync({
+      ...v,
+      amount: Number(v.amount).toFixed(2),
+      balance: peso(v.balance ?? (loan ? v.principal : undefined)),
+      loanType: loan ? (v.loanType ?? 'other') : undefined,
+      principal: loan ? peso(v.principal) : undefined,
+      startDate: loan && v.startDate ? v.startDate : undefined,
+      active: true,
+    })
     onClose()
   })
 
@@ -196,11 +219,30 @@ function AdjustmentDialog({ onClose }: { onClose: () => void }) {
             <Input inputMode="decimal" {...register('amount')} />
           </Field>
           {kind === 'deduction' && (
-            <Field label="Loan balance (₱)" error={errors.balance?.message}>
-              <Input inputMode="decimal" placeholder="Optional" {...register('balance')} />
+            <Field label={loan ? 'Balance left (₱)' : 'Balance (₱)'} error={errors.balance?.message}>
+              <Input inputMode="decimal" placeholder={loan ? 'Blank = amount borrowed' : 'Optional'} {...register('balance')} />
             </Field>
           )}
         </div>
+        {loan && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Loan type">
+              <Select {...register('loanType')} defaultValue="company">
+                {(Object.keys(loanTypeLabels) as LoanType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {loanTypeLabels[t]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Amount borrowed (₱)" error={errors.principal?.message}>
+              <Input inputMode="decimal" placeholder="e.g. 20000" {...register('principal')} />
+            </Field>
+            <Field label="Deductions start">
+              <Input type="date" {...register('startDate')} />
+            </Field>
+          </div>
+        )}
         <Button type="submit" className="w-full" disabled={save.isPending}>
           {save.isPending ? 'Saving…' : 'Save'}
         </Button>

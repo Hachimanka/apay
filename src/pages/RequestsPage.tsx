@@ -3,15 +3,20 @@ import type { ColumnDef } from '@tanstack/react-table'
 import {
   Baby,
   BookOpen,
+  Briefcase,
   CalendarClock,
   Check,
   CircleDollarSign,
+  ClipboardPen,
+  ClockAlert,
   FileBadge,
   FileQuestion,
   HeartHandshake,
   Inbox,
+  LogOut,
   PlaneTakeoff,
   Timer,
+  UserPlus,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -25,7 +30,19 @@ import { Dialog } from '@/components/ui/Dialog'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { ApprovalBadge } from '@/components/shared/StatusBadges'
 import { EmployeeFilter } from '@/components/shared/EmployeeFilter'
-import { useDecideLeave, useDecideOvertime, useDecideRequest, useEmployees, useLeaves, useOvertime, useRequests } from '@/services/queries'
+import {
+  useDailyAttendance,
+  useDecideLeave,
+  useDecideOvertime,
+  useDecideRequest,
+  useDecideRequests,
+  useEmployees,
+  useLeaves,
+  useOvertime,
+  useRequests,
+} from '@/services/queries'
+import { FileRequestDialog } from '@/features/requests/FileRequestDialog'
+import { filingDay, filingEffect, filingFacts, filingSummary, isTimeFiling, overtimeReady } from '@/features/requests/filings'
 import type { ApprovalStatus, AzoneRequest, LeaveRecord, OvertimeKind, OvertimeRequest } from '@/services/types'
 import { useAuth } from '@/store/auth'
 import { can } from '@/lib/permissions'
@@ -59,9 +76,21 @@ const requestIcon: Record<string, LucideIcon> = {
   paternity_leave: Baby,
   solo_parent_leave: HeartHandshake,
   study_leave: BookOpen,
+  dtr_discrepancy: ClipboardPen,
+  no_dtr: ClockAlert,
+  undertime: LogOut,
+  official_business: Briefcase,
 }
 
-type Source = 'leave' | 'overtime' | 'request'
+/** Pay effect of an approved time filing, shown in the Pay column */
+const filingImpact: Record<string, Row['impact']> = {
+  dtr_discrepancy: { text: 'Fixes time record', tone: 'muted' },
+  no_dtr: { text: 'Adds time record', tone: 'muted' },
+  undertime: { text: 'Unpaid (excused)', tone: 'danger' },
+  official_business: { text: 'Counts as worked', tone: 'success' },
+}
+
+type Source = 'leave' | 'overtime' | 'filing' | 'request'
 type Row = {
   key: string
   source: Source
@@ -85,6 +114,7 @@ const sources: { id: Source | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'leave', label: 'Leaves' },
   { id: 'overtime', label: 'Overtime' },
+  { id: 'filing', label: 'Time filings' },
   { id: 'request', label: 'Other requests' },
 ]
 const statuses: { id: ApprovalStatus | 'all'; label: string }[] = [
@@ -105,14 +135,20 @@ export function RequestsPage() {
   const decideLeave = useDecideLeave()
   const decideOt = useDecideOvertime()
   const decideRequest = useDecideRequest()
+  const decideMany = useDecideRequests()
   const role = useAuth((s) => s.session?.user.role)
   const canDecide = can(role, 'overtime.decide')
+  const canFile = can(role, 'attendance.manage')
 
   const [source, setSource] = useState<Source | 'all'>('all')
   const [status, setStatus] = useState<ApprovalStatus | 'all'>('pending')
   const [picked, setPicked] = useState<string[]>([])
   const [open, setOpen] = useState<Row | null>(null)
   const [approvingOt, setApprovingOt] = useState<AzoneRequest | null>(null)
+  const [filing, setFiling] = useState(false)
+  /** Rows ticked for a bulk decision (by row key) */
+  const [ticked, setTicked] = useState<Set<string>>(new Set())
+  const [bulkNote, setBulkNote] = useState<string | null>(null)
 
   const all = useMemo<Row[]>(() => {
     const basic = new Map((employees.data ?? []).map((e) => [e.id, e.monthlyBasic]))
@@ -156,19 +192,30 @@ export function RequestsPage() {
       })
     }
     for (const r of requests.data ?? []) {
+      const structured = filingSummary(r)
+      const filedOt = overtimeReady(r) ? (r.data!.hours as number) : null
       out.push({
         key: `req-${r.id}`,
-        source: r.kind === 'overtime' ? 'overtime' : 'request',
+        source: r.kind === 'overtime' ? 'overtime' : isTimeFiling(r.kind) ? 'filing' : 'request',
         id: r.id,
         employeeId: r.employeeId,
         employeeName: r.employeeName,
         department: r.department,
         type: r.title,
         icon: requestIcon[r.kind] ?? FileQuestion,
-        summary: r.overtime ? `${formatDate(r.overtime.date)} · ${r.overtime.hours} h · ${otKindLabel[r.overtime.kind]}` : r.details,
-        impact: r.overtime ? { text: `+${r.overtime.hours} h OT`, tone: 'success' } : null,
+        summary: r.overtime
+          ? `${formatDate(r.overtime.date)} · ${r.overtime.hours} h · ${otKindLabel[r.overtime.kind]}`
+          : structured
+            ? `${structured} — ${r.details}`
+            : r.details,
+        impact: r.overtime
+          ? { text: `+${r.overtime.hours} h OT`, tone: 'success' }
+          : filedOt
+            ? { text: `+${filedOt} h OT`, tone: 'success' }
+            : (filingImpact[r.kind] ?? null),
         status: r.status,
-        sortDate: r.filedAt.slice(0, 10),
+        // A time filing sorts by the day it's about; other requests by when they were filed
+        sortDate: r.startDate ?? r.filedAt.slice(0, 10),
         request: r,
       })
     }
@@ -197,18 +244,83 @@ export function RequestsPage() {
     { icon: Timer, tone: 'success' as const, label: 'Approved overtime', value: `${approvedOtHours} h` },
   ]
 
-  const busy = decideLeave.isPending || decideOt.isPending || decideRequest.isPending
-  const error = decideLeave.error ?? decideOt.error ?? decideRequest.error
+  const busy = decideLeave.isPending || decideOt.isPending || decideRequest.isPending || decideMany.isPending
+  const error = decideLeave.error ?? decideOt.error ?? decideRequest.error ?? decideMany.error
 
   function decide(row: Row, to: 'approved' | 'rejected') {
-    if (row.request?.kind === 'overtime' && to === 'approved') return setApprovingOt(row.request)
+    // Free-text overtime needs HR to enter what to pay; structured overtime already has its date and hours
+    if (row.request?.kind === 'overtime' && to === 'approved' && !overtimeReady(row.request)) return setApprovingOt(row.request)
     const done = () => setOpen(null)
     if (row.leave) decideLeave.mutate({ id: row.id, status: to }, { onSuccess: done })
     else if (row.overtime) decideOt.mutate({ id: row.id, status: to }, { onSuccess: done })
     else decideRequest.mutate({ id: row.id, status: to }, { onSuccess: done })
   }
 
+  const tickable = shown.filter((r) => r.status === 'pending')
+  const tickedRows = tickable.filter((r) => ticked.has(r.key))
+  const toggle = (key: string) =>
+    setTicked((t) => {
+      const n = new Set(t)
+      if (n.has(key)) n.delete(key)
+      else n.add(key)
+      return n
+    })
+
+  /** Decide every ticked row. Requests go in one call; leaves and direct overtime one by one. Failures are reported, not fatal. */
+  async function decideTicked(to: 'approved' | 'rejected') {
+    setBulkNote(null)
+    const failed: string[] = []
+    const reqs = tickedRows.filter((r) => r.request)
+    if (reqs.length) {
+      const { results } = await decideMany.mutateAsync({ ids: reqs.map((r) => r.id), status: to })
+      for (const res of results.filter((x) => !x.ok)) {
+        const row = reqs.find((r) => r.id === res.id)
+        failed.push(`${row?.employeeName} · ${row?.type}: ${res.error}`)
+      }
+    }
+    for (const r of tickedRows.filter((x) => !x.request)) {
+      try {
+        if (r.leave) await decideLeave.mutateAsync({ id: r.id, status: to })
+        else await decideOt.mutateAsync({ id: r.id, status: to })
+      } catch (e) {
+        failed.push(`${r.employeeName} · ${r.type}: ${e instanceof Error ? e.message : 'Failed'}`)
+      }
+    }
+    setTicked(new Set())
+    const ok = tickedRows.length - failed.length
+    setBulkNote(`${ok} ${to}.${failed.length ? ` ${failed.length} not done — ${failed.join('; ')}` : ''}`)
+  }
+
   const columns: ColumnDef<Row>[] = [
+    ...(canDecide
+      ? [
+          {
+            id: 'tick',
+            enableSorting: false,
+            header: () => (
+              <input
+                type="checkbox"
+                className="size-4 accent-primary"
+                aria-label="Select all pending on this list"
+                checked={tickable.length > 0 && tickedRows.length === tickable.length}
+                onChange={(e) => setTicked(e.target.checked ? new Set(tickable.map((r) => r.key)) : new Set())}
+              />
+            ),
+            cell: ({ row }) =>
+              row.original.status === 'pending' ? (
+                <span onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-primary"
+                    aria-label={`Select ${row.original.type} for ${row.original.employeeName}`}
+                    checked={ticked.has(row.original.key)}
+                    onChange={() => toggle(row.original.key)}
+                  />
+                </span>
+              ) : null,
+          } satisfies ColumnDef<Row>,
+        ]
+      : []),
     {
       accessorKey: 'employeeName',
       header: 'Employee',
@@ -298,7 +410,14 @@ export function RequestsPage() {
       <PageHeader
         eyebrow="People & Time"
         title="Requests"
-        description="Everything employees file in AZONE — leaves, overtime and other requests. Approving or rejecting notifies them in AZONE; approved leave without pay is deducted, approved overtime is paid."
+        description="Everything employees file in AZONE — leaves, overtime, time filings and other requests. Approving or rejecting notifies them in AZONE; approved leave without pay is deducted, approved overtime is paid, approved time filings update the time records."
+        actions={
+          canFile ? (
+            <Button onClick={() => setFiling(true)}>
+              <UserPlus className="size-4" /> File for employee
+            </Button>
+          ) : undefined
+        }
       />
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3 sm:gap-5">
@@ -353,6 +472,18 @@ export function RequestsPage() {
       </div>
 
       {error && <p className="mb-4 rounded-xl bg-danger-50 px-4 py-3 text-sm font-medium text-danger">{error.message}</p>}
+      {bulkNote && <p className="mb-4 rounded-xl bg-primary-50 px-4 py-3 text-sm font-medium text-primary">{bulkNote}</p>}
+      {tickedRows.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-surface px-4 py-3 shadow-card">
+          <span className="mr-auto text-sm font-semibold text-navy">{tickedRows.length} selected</span>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => void decideTicked('rejected')}>
+            <X className="size-4" /> Reject selected
+          </Button>
+          <Button size="sm" disabled={busy} onClick={() => void decideTicked('approved')}>
+            <Check className="size-4" /> Approve selected
+          </Button>
+        </div>
+      )}
 
       <DataTable
         data={shown}
@@ -368,6 +499,7 @@ export function RequestsPage() {
       />
 
       {open && <RequestDialog row={open} canDecide={canDecide} busy={busy} onDecide={(to) => decide(open, to)} onClose={() => setOpen(null)} />}
+      {filing && <FileRequestDialog onClose={() => setFiling(false)} />}
       {approvingOt && (
         <ApproveOvertimeDialog
           request={approvingOt}
@@ -419,7 +551,8 @@ function RequestDialog({
           ['Reason', row.overtime.reason || '—'],
         ]
       : [
-          ['Filed', formatDate(r!.filedAt, 'MMM d, yyyy · h:mm a')],
+          ...filingFacts(r!),
+          ['Filed', `${formatDate(r!.filedAt, 'MMM d, yyyy · h:mm a')}${r!.filedByHr ? ' · by HR' : ''}`],
           ...(r!.overtime
             ? ([['Paid as', `${r!.overtime.hours} h on ${formatDate(r!.overtime.date)} · ${otKindLabel[r!.overtime.kind]}`]] as [string, string][])
             : []),
@@ -431,7 +564,7 @@ function RequestDialog({
       <div className="mb-4 flex items-center gap-2">
         <ApprovalBadge status={row.status} />
         <Badge size="sm" tone="neutral">
-          From AZONE
+          {r?.filedByHr ? 'Filed by HR' : 'From AZONE'}
         </Badge>
       </div>
       {r && <p className="mb-4 rounded-xl bg-bg p-4 text-sm whitespace-pre-wrap text-ink">{r.details}</p>}
@@ -443,9 +576,15 @@ function RequestDialog({
           </div>
         ))}
       </dl>
+      {r && filingDay(r) && (isTimeFiling(r.kind) || r.kind === 'overtime') && <DayRecord employeeId={r.employeeId} date={filingDay(r)!} />}
       {r?.kind === 'overtime' && row.status === 'pending' && (
-        <p className="mt-3 text-xs text-muted">Approving asks for the date, hours and type so the overtime is paid in that cut-off.</p>
+        <p className="mt-3 text-xs text-muted">
+          {overtimeReady(r)
+            ? filingEffect.overtime
+            : 'Approving asks for the date, hours and type so the overtime is paid in that cut-off.'}
+        </p>
       )}
+      {r && isTimeFiling(r.kind) && row.status === 'pending' && <p className="mt-3 text-xs text-muted">{filingEffect[r.kind]}</p>}
       {row.status === 'pending' && canDecide && (
         <div className="mt-5 grid grid-cols-2 gap-2">
           <Button variant="outline" disabled={busy} onClick={() => onDecide('rejected')}>
@@ -457,6 +596,37 @@ function RequestDialog({
         </div>
       )}
     </Dialog>
+  )
+}
+
+/** The time record on file for the day a filing is about, so HR can compare before approving. */
+function DayRecord({ employeeId, date }: { employeeId: string; date: string }) {
+  const day = useDailyAttendance(date)
+  const row = day.data?.rows.find((x) => x.employeeId === employeeId)
+  const punches = row ? [row.timeIn, row.breakOut, row.breakIn, row.timeOut].map((t) => t ?? '—').join(' · ') : null
+  const extras = row
+    ? [
+        row.lateMinutes ? `${row.lateMinutes} min late` : '',
+        row.undertimeMinutes ? `${row.undertimeMinutes} min undertime` : '',
+        row.officialBusiness ? 'official business' : '',
+      ].filter(Boolean)
+    : []
+  return (
+    <div className="mt-3 rounded-xl border border-line px-4 py-3 text-sm">
+      <p className="text-xs font-semibold tracking-wide text-muted uppercase">Time record on file · {formatDate(date)}</p>
+      {day.isLoading ? (
+        <p className="mt-1 text-muted">Loading…</p>
+      ) : !row ? (
+        <p className="mt-1 text-muted">Not available</p>
+      ) : (
+        <p className="mt-1 font-medium text-navy">
+          {row.timeIn ? punches : 'No punches'}
+          <span className="ml-2 text-xs font-normal text-muted">
+            In · Break out · Break in · Out{extras.length ? ` — ${extras.join(', ')}` : ''}
+          </span>
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -523,7 +693,8 @@ function ApproveOvertimeDialog({
           </Field>
         </div>
         <p className="col-span-2 text-xs text-muted">
-          Paid in the cut-off that includes this date. If that payroll is already computed, it goes back to Draft to be recomputed.
+          Only hours beyond 8 that day — the first 8 hours on a rest day or holiday are paid from the time records. The rate follows the date
+          (holiday calendar and the employee’s rest days). Paid in the cut-off that includes this date; a computed payroll goes back to Draft.
         </p>
         {(error || (hours && invalid)) && <p className="col-span-2 text-sm text-danger">{error ?? invalid}</p>}
         <Button type="submit" className="col-span-2" disabled={busy || !!invalid}>

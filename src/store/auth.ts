@@ -5,6 +5,8 @@ import type { Session } from '@/services/types'
 type AuthState = {
   session: Session | null
   setSession: (session: Session) => void
+  /** Access rights can change while signed in (HR edits them in Settings) */
+  setPermissions: (permissions: NonNullable<Session['user']['permissions']>) => void
   logout: () => void
 }
 
@@ -13,14 +15,15 @@ export const useAuth = create<AuthState>()(
     (set) => ({
       session: null,
       setSession: (session) => set({ session }),
+      setPermissions: (permissions) => set((s) => (s.session ? { session: { ...s.session, user: { ...s.session.user, permissions } } } : s)),
       logout: () => set({ session: null }),
     }),
     {
       name: 'apay-auth',
-      // Sessions saved before APAY became HR-only (Finance, Payroll Admin…) are dropped so those users see the sign-in page
+      // Non-HR sessions saved before access rights existed carry no permission list; drop them so they sign in again
       merge: (persisted, current) => {
         const saved = (persisted as Partial<AuthState> | undefined)?.session
-        return { ...current, session: saved?.user.role === 'hr' ? saved : null }
+        return { ...current, session: saved && (saved.user.role === 'hr' || Array.isArray(saved.user.permissions)) ? saved : null }
       },
     },
   ),

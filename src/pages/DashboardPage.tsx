@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { motion } from 'motion/react'
 import { formatDistanceToNowStrict } from 'date-fns'
-import { ArrowRight, Banknote, CalendarRange, ChartColumn, History, Inbox, Landmark, Users } from 'lucide-react'
+import { ArrowRight, BadgeAlert, Banknote, CalendarRange, ChartColumn, History, Inbox, Landmark, Users } from 'lucide-react'
 import { StatCard } from '@/components/ui/StatCard'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Skeleton } from '@/components/ui/Misc'
@@ -9,7 +9,7 @@ import { buttonVariants } from '@/components/ui/Button'
 import { PesoBarChart, PesoHBarChart } from '@/components/charts/Charts'
 import { PeriodStatusBadge } from '@/components/shared/StatusBadges'
 import { PayrollStepper } from '@/components/shared/PayrollStepper'
-import { useAudit, useEmployees, useLeaves, useOvertime, usePayrollLines, usePeriods, useRequests } from '@/services/queries'
+import { useAudit, useEmployees, useLeaves, useLicenses, useOvertime, usePayrollLines, usePeriods, useRequests } from '@/services/queries'
 import { useAuth } from '@/store/auth'
 import { formatDate, formatPeso, greeting } from '@/lib/format'
 import { roleLabels } from '@/lib/permissions'
@@ -79,6 +79,7 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Phase 5: license expiry alert (#87) sits right under the greeting */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold tracking-wider text-muted uppercase">{greeting()},</p>
@@ -93,6 +94,8 @@ export function DashboardPage() {
           </Link>
         )}
       </div>
+
+      <LicenseAlert />
 
       <div className="grid grid-cols-2 gap-3 sm:gap-5 xl:grid-cols-4">
         {stats.map((s, i) => (
@@ -172,5 +175,27 @@ export function DashboardPage() {
         </Card>
       </motion.div>
     </div>
+  )
+}
+
+/** Licenses expired or expiring within 30 days (checklist #87); hidden when there are none. */
+function LicenseAlert() {
+  const { data } = useLicenses(30)
+  if (!data?.length) return null
+  const expired = data.filter((l) => l.daysLeft < 0).length
+  return (
+    <Link
+      to="/app/fleet?tab=licenses"
+      className="flex items-center gap-3 rounded-2xl border border-warning/30 bg-warning-50 px-5 py-3.5 text-sm transition hover:shadow-card"
+    >
+      <BadgeAlert className="size-5 shrink-0 text-warning" />
+      <span className="flex-1 text-ink">
+        <b className="text-navy">
+          {data.length} license{data.length === 1 ? '' : 's'}
+        </b>{' '}
+        {expired ? `need attention — ${expired} expired, ${data.length - expired} expiring within 30 days.` : 'expire within 30 days.'}
+      </span>
+      <ArrowRight className="size-4 text-warning" />
+    </Link>
   )
 }

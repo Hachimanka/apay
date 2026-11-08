@@ -12,7 +12,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = useAuth.getState().session?.token
   const res = await fetch(`${BASE}${path}`, {
     ...init,
@@ -44,6 +44,12 @@ export const httpApi: ApayApi = {
   getEmployeeAvatar: (id) => request(`/apay/employees/${id}/avatar`),
   createEmployee: (input) => request('/apay/employees', { method: 'POST', body: json(input) }),
   saveEmployee: (input) => request(`/apay/employees/${input.id}`, { method: 'PUT', body: json(input) }),
+  listEmployeeRecords: (employeeId) => request(`/apay/employees/${employeeId}/records`),
+  saveEmployeeRecord: ({ id, employeeId, kind, data }) =>
+    id
+      ? request(`/apay/employees/${employeeId}/records/${id}`, { method: 'PUT', body: json({ data }) })
+      : request(`/apay/employees/${employeeId}/records`, { method: 'POST', body: json({ kind, data }) }),
+  deleteEmployeeRecord: (employeeId, id) => request(`/apay/employees/${employeeId}/records/${id}`, { method: 'DELETE' }),
 
   listPeriods: () => request('/apay/periods'),
   getPeriod: (id) => request(`/apay/periods/${id}`),
@@ -70,12 +76,68 @@ export const httpApi: ApayApi = {
 
   listRequests: () => request('/apay/requests'),
   decideRequest: (id, status, overtime) => request(`/apay/requests/${id}/decision`, { method: 'POST', body: json({ status, overtime }) }),
+  decideRequests: (ids, status) => request('/apay/requests/decisions', { method: 'POST', body: json({ ids, status }) }),
+  fileRequest: (input) => request('/apay/requests', { method: 'POST', body: json(input) }),
+
+  listLoans: (employeeId) => request(`/apay/loans${employeeId ? `?employeeId=${employeeId}` : ''}`),
+
+  listPayEntries: (periodId) => request(`/apay/periods/${periodId}/entries`),
+  addPayEntry: (periodId, input) => request(`/apay/periods/${periodId}/entries`, { method: 'POST', body: json(input) }),
+  deletePayEntry: (periodId, entryId) => request(`/apay/periods/${periodId}/entries/${entryId}`, { method: 'DELETE' }),
+  convertVacationLeave: (periodId, maxDays) => request(`/apay/periods/${periodId}/entries/convert-vl`, { method: 'POST', body: json({ maxDays }) }),
+  thirteenthMonth: (year) => request(`/apay/thirteenth-month?year=${year}`),
+
+  listFinalPays: () => request('/apay/final-pays'),
+
+  listReports: () => request('/apay/reports'),
+
+  listVessels: () => request('/apay/vessels'),
+  saveVessel: ({ id, ...input }) =>
+    id ? request(`/apay/vessels/${id}`, { method: 'PUT', body: json(input) }) : request('/apay/vessels', { method: 'POST', body: json(input) }),
+  listCrew: (f = {}) => {
+    const q = new URLSearchParams()
+    if (f.employeeId) q.set('employeeId', f.employeeId)
+    if (f.aboard) q.set('aboard', 'true')
+    return request(`/apay/crew?${q}`)
+  },
+  saveCrewStint: ({ id, ...input }) =>
+    id ? request(`/apay/crew/${id}`, { method: 'PUT', body: json(input) }) : request('/apay/crew', { method: 'POST', body: json(input) }),
+  deleteCrewStint: (id) => request(`/apay/crew/${id}`, { method: 'DELETE' }),
+  disembark: (id, input) => request(`/apay/crew/${id}/disembark`, { method: 'POST', body: json(input) }),
+  listCadets: () => request('/apay/cadets'),
+  saveCadet: ({ id, ...input }) =>
+    id ? request(`/apay/cadets/${id}`, { method: 'PUT', body: json(input) }) : request('/apay/cadets', { method: 'POST', body: json(input) }),
+  moveCadet: (id, stage, note) => request(`/apay/cadets/${id}/stage`, { method: 'POST', body: json({ stage, note }) }),
+  listLicenses: (days = 90) => request(`/apay/licenses?days=${days}`),
+  runReport: (key, params) => request(`/apay/reports/${key}?${new URLSearchParams(Object.entries(params).filter(([, v]) => !!v) as [string, string][])}`),
+  getFinalPay: (employeeId) => request(`/apay/employees/${employeeId}/final-pay`),
+  computeFinalPay: (employeeId, separationDate, separationReason) =>
+    request(`/apay/employees/${employeeId}/final-pay`, { method: 'POST', body: json({ separationDate, separationReason }) }),
+  saveFinalPay: (employeeId, input) => request(`/apay/employees/${employeeId}/final-pay`, { method: 'PUT', body: json(input) }),
+  setFinalPayStatus: (employeeId, status) => request(`/apay/employees/${employeeId}/final-pay/status`, { method: 'POST', body: json({ status }) }),
+  deleteFinalPay: (employeeId) => request(`/apay/employees/${employeeId}/final-pay`, { method: 'DELETE' }),
+
+  getPayslipEmails: (periodId) => request(`/apay/periods/${periodId}/payslip-emails`),
+  sendPayslipEmails: (periodId, employeeIds) => request(`/apay/periods/${periodId}/payslip-emails`, { method: 'POST', body: json({ employeeIds }) }),
 
   listAnnouncements: () => request('/apay/announcements'),
   saveAnnouncement: (input) =>
     input.id
       ? request(`/apay/announcements/${input.id}`, { method: 'PUT', body: json(input) })
       : request('/apay/announcements', { method: 'POST', body: json(input) }),
+
+  listHolidays: () => request('/apay/holidays'),
+  saveHoliday: (input, originalDate) =>
+    originalDate
+      ? request(`/apay/holidays/${originalDate}`, { method: 'PUT', body: json(input) })
+      : request('/apay/holidays', { method: 'POST', body: json(input) }),
+  deleteHoliday: (date) => request(`/apay/holidays/${date}`, { method: 'DELETE' }),
+  loadOfficialHolidays: () => request('/apay/holidays/load-official', { method: 'POST' }),
+
+  listShifts: () => request('/apay/shifts'),
+  saveShift: ({ id, ...input }) =>
+    id ? request(`/apay/shifts/${id}`, { method: 'PUT', body: json(input) }) : request('/apay/shifts', { method: 'POST', body: json(input) }),
+  deleteShift: (id) => request(`/apay/shifts/${id}`, { method: 'DELETE' }),
 
   getSettings: () => request('/apay/settings'),
   saveSettings: (input) => request('/apay/settings', { method: 'PUT', body: json(input) }),

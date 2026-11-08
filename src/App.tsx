@@ -20,6 +20,9 @@ const RequestsPage = lazy(() => import('@/pages/RequestsPage').then((m) => ({ de
 const PeriodsPage = lazy(() => import('@/pages/PeriodsPage').then((m) => ({ default: m.PeriodsPage })))
 const PeriodDetailPage = lazy(() => import('@/pages/PeriodDetailPage').then((m) => ({ default: m.PeriodDetailPage })))
 const PayslipsPage = lazy(() => import('@/pages/PayslipsPage').then((m) => ({ default: m.PayslipsPage })))
+const RecruitmentPage = lazy(() => import('@/pages/RecruitmentPage').then((m) => ({ default: m.RecruitmentPage })))
+const FleetPage = lazy(() => import('@/pages/FleetPage').then((m) => ({ default: m.FleetPage })))
+const SpecialPayPage = lazy(() => import('@/pages/SpecialPayPage').then((m) => ({ default: m.SpecialPayPage })))
 const AdjustmentsPage = lazy(() => import('@/pages/AdjustmentsPage').then((m) => ({ default: m.AdjustmentsPage })))
 const GovernmentPage = lazy(() => import('@/pages/GovernmentPage').then((m) => ({ default: m.GovernmentPage })))
 const ReportsPage = lazy(() => import('@/pages/ReportsPage').then((m) => ({ default: m.ReportsPage })))
@@ -70,6 +73,8 @@ export default function App() {
               <Route path="employees/:id" element={<EmployeeDetailPage />} />
               <Route path="attendance" element={<AttendancePage />} />
               <Route path="requests" element={<RequestsPage />} />
+              <Route path="fleet" element={<FleetPage />} />
+              <Route path="recruitment" element={<RecruitmentPage />} />
               {/* Overtime and Leave Impact were merged into Requests */}
               <Route path="overtime" element={<Navigate to="/app/requests" replace />} />
               <Route path="leave-impact" element={<Navigate to="/app/requests" replace />} />
@@ -77,6 +82,7 @@ export default function App() {
               <Route path="periods/:id" element={<PeriodDetailPage />} />
               <Route path="payslips" element={<PayslipsPage />} />
               <Route path="adjustments" element={<AdjustmentsPage />} />
+              <Route path="special-pay" element={<SpecialPayPage />} />
               <Route path="government" element={<GovernmentPage />} />
               <Route
                 path="reports"

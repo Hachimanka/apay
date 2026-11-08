@@ -1,32 +1,26 @@
 import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { formatDistanceToNowStrict } from 'date-fns'
-import { Check, History, KeyRound, Save, SlidersHorizontal } from 'lucide-react'
+import { Check, History, Save, SlidersHorizontal } from 'lucide-react'
 import { PageHeader, Skeleton } from '@/components/ui/Misc'
 import { Card, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Field, Input } from '@/components/ui/Field'
 import { useAudit, useSaveSettings, useSettings } from '@/services/queries'
 import type { PayrollSettings } from '@/services/types'
-import { rolePermissions, type Permission } from '@/lib/permissions'
+import { can } from '@/lib/permissions'
+import { AccessRights } from '@/features/settings/AccessRights'
+import { BackupCard, DevicesCard, GeofenceCard, PrivacyCard } from '@/features/settings/PlatformSettings'
+import { useAuth } from '@/store/auth'
+import { HolidayCalendar } from '@/features/settings/HolidayCalendar'
+import { ShiftCodes } from '@/features/settings/ShiftCodes'
 
-const permissionLabels: Record<Permission, string> = {
-  'employees.manage': 'Manage employees',
-  'attendance.manage': 'Manage attendance',
-  'payroll.process': 'Compute payroll',
-  'payroll.approve': 'Approve payroll',
-  'payroll.release': 'Release payroll',
-  'adjustments.manage': 'Manage allowances & deductions',
-  'overtime.decide': 'Approve overtime',
-  'reports.view': 'View reports',
-  'announcements.manage': 'Post announcements',
-  'settings.manage': 'Change settings',
-}
 
 export function SettingsPage() {
   const { data } = useSettings()
   const audit = useAudit()
   const save = useSaveSettings()
+  const canManage = can(useAuth((s) => s.session?.user.role), 'settings.manage')
   const { register, handleSubmit, reset, formState } = useForm<PayrollSettings>()
 
   useEffect(() => {
@@ -35,7 +29,7 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Administration" title="Settings" description="Payroll rules, access control and the audit trail." />
+      <PageHeader eyebrow="Administration" title="Settings" description="Payroll rules, access rights, privacy, devices, backups and the audit trail." />
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Card className="p-5 sm:p-6">
@@ -68,6 +62,8 @@ export function SettingsPage() {
                 </Field>
               </div>
               <Toggle label="Publish released payslips to AZONE automatically" {...register('autoPublishToAzone')} />
+              <Toggle label="Email employees a link to their payslip on release (no amounts in the email)" {...register('emailPayslips')} />
+              <Toggle label="Add the 13th month to the December 16–31 payroll automatically" {...register('thirteenthMonthAuto')} />
               <Button type="submit" disabled={save.isPending || !formState.isDirty}>
                 {save.isSuccess && !formState.isDirty ? <Check className="size-4" /> : <Save className="size-4" />}
                 {save.isPending ? 'Saving…' : save.isSuccess && !formState.isDirty ? 'Saved' : 'Save settings'}
@@ -76,20 +72,24 @@ export function SettingsPage() {
           )}
         </Card>
 
-        <Card className="p-5 sm:p-6">
-          <CardHeader icon={KeyRound} title="Access" />
-          <p className="mt-3 text-sm text-muted">
-            APAY is run by the <b className="text-navy">HR department</b> only. Other accounts (Finance, Management, employees) can’t sign in.
-          </p>
-          <ul className="mt-4 divide-y divide-line text-sm">
-            {rolePermissions.hr.map((p) => (
-              <li key={p} className="flex items-center justify-between py-2.5">
-                <span className="text-ink">{permissionLabels[p]}</span>
-                <Check className="size-4 text-success" aria-label="Allowed" />
-              </li>
-            ))}
-          </ul>
-        </Card>
+        <AccessRights />
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        <HolidayCalendar canManage={canManage} />
+        <ShiftCodes canManage={canManage} defaultStart={data?.shiftStartMinutes ?? 480} />
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        <PrivacyCard canManage={canManage} />
+        <div className="grid content-start gap-5">
+          <GeofenceCard canManage={canManage} />
+          <BackupCard />
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        <DevicesCard canManage={canManage} />
       </div>
 
       <Card className="mt-5 p-5 sm:p-6">

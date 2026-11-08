@@ -9,6 +9,7 @@ import { keys, usePeriods } from '@/services/queries'
 import { downloadCsv } from '@/lib/csv'
 import { formatPeso } from '@/lib/format'
 import { sum } from '@/lib/payroll'
+import { ReportLibrary } from '@/features/reports/ReportLibrary'
 
 export function ReportsPage() {
   const periods = usePeriods()
@@ -67,7 +68,15 @@ export function ReportsPage() {
 
   return (
     <>
-      <PageHeader eyebrow="Compliance" title="Reports" description="Payroll cost trends and exportable reports for Finance and government filing." />
+      <PageHeader
+        eyebrow="Compliance"
+        title="Reports"
+        description="Workforce, attendance, government and payroll reports — open one to view it, sort it, print it or export it to CSV."
+      />
+
+      <ReportLibrary />
+
+      <h2 className="mt-8 mb-4 text-lg font-bold">Payroll trends</h2>
 
       <Card className="p-5 sm:p-6">
         <CardHeader icon={ChartColumn} title="Where each cut-off’s gross pay goes" />
@@ -122,7 +131,7 @@ export function ReportsPage() {
         </div>
       </Card>
 
-      <h2 className="mt-8 mb-4 text-lg font-bold">Downloads</h2>
+      <h2 className="mt-8 mb-4 text-lg font-bold">Quick downloads</h2>
       <div className="grid gap-4 md:grid-cols-3">
         {reports.map(({ icon: Icon, title, text, file, data }) => (
           <Card key={title} className="card-hover flex flex-col p-5">

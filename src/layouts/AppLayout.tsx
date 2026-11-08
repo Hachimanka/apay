@@ -15,15 +15,18 @@ import { useBreadcrumb } from '@/store/breadcrumb'
 import { can, roleLabels } from '@/lib/permissions'
 import { cn } from '@/lib/cn'
 import { mobileTabs, navGroups, type NavItem } from './nav'
+import { useRefreshPermissions } from '@/services/platform'
 
 function useVisibleGroups() {
   const role = useAuth((s) => s.session?.user.role)
+  useAuth((s) => s.session?.user.permissions) // re-render when access rights change
   return navGroups.map((g) => ({ ...g, items: g.items.filter((i) => !i.permission || can(role, i.permission)) })).filter((g) => g.items.length > 0)
 }
 
 export function AppLayout() {
   const location = useLocation()
   useApplyTheme()
+  useRefreshPermissions()
   return (
     // Sidebar runs the full height (logo on top); the top bar only spans the content column beside it. Same shell as AZONE.
     <div className="flex min-h-dvh bg-bg">

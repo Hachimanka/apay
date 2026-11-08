@@ -4,11 +4,14 @@ import {
   ChartColumn,
   Clock,
   FileText,
+  Gift,
   Landmark,
   LayoutDashboard,
   Megaphone,
   Inbox,
   Settings,
+  Ship,
+  UserSearch,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -24,6 +27,8 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
       { to: '/app/employees', label: 'Employees', icon: Users },
       { to: '/app/attendance', label: 'Attendance & DTR', icon: Clock },
       { to: '/app/requests', label: 'Requests', icon: Inbox },
+      { to: '/app/fleet', label: 'Fleet & Crew', icon: Ship },
+      { to: '/app/recruitment', label: 'Recruitment', icon: UserSearch },
     ],
   },
   {
@@ -32,6 +37,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
       { to: '/app/periods', label: 'Payroll Periods', icon: CalendarRange },
       { to: '/app/payslips', label: 'Payslips', icon: FileText },
       { to: '/app/adjustments', label: 'Allowances & Deductions', icon: BadgePercent },
+      { to: '/app/special-pay', label: '13th Month & Final Pay', icon: Gift },
     ],
   },
   {

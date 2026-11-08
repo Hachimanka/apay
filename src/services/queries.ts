@@ -6,7 +6,20 @@ import type {
   ApprovalStatus,
   AttendanceInput,
   EmployeeInput,
+  EmployeeRecordInput,
+  FilingInput,
+  FinalPay,
+  PayEntryInput,
+  ReportParams,
+  CadetInput,
+  CadetStage,
+  CrewStintInput,
+  DisembarkInput,
+  VesselInput,
+  SeparationReason,
+  Holiday,
   OvertimeKind,
+  ShiftInput,
   TimeRecordInput,
   PayrollSettings,
   PeriodStatus,
@@ -15,6 +28,7 @@ import type {
 export const keys = {
   employees: ['employees'] as const,
   employee: (id: string) => ['employees', id] as const,
+  employeeRecords: (id: string) => ['employees', id, 'records'] as const,
   periods: ['periods'] as const,
   period: (id: string) => ['periods', id] as const,
   attendance: (id: string) => ['periods', id, 'attendance'] as const,
@@ -26,6 +40,8 @@ export const keys = {
   settings: ['settings'] as const,
   audit: ['audit'] as const,
   daily: (date: string) => ['daily', date] as const,
+  loans: (employeeId?: string) => ['loans', employeeId ?? 'all'] as const,
+  payslipEmails: (periodId: string) => ['periods', periodId, 'payslip-emails'] as const,
 }
 
 export const useEmployees = () => useQuery({ queryKey: keys.employees, queryFn: api.listEmployees })
@@ -48,7 +64,27 @@ function useInvalidate() {
 
 export function useSaveEmployee() {
   const invalidate = useInvalidate()
+  // keys.employees also covers each employee's profile and 201 records (an update may log a movement entry)
   return useMutation({ mutationFn: (input: EmployeeInput & { id: string }) => api.saveEmployee(input), onSuccess: () => invalidate(keys.employees) })
+}
+
+export const useEmployeeRecords = (employeeId: string) =>
+  useQuery({ queryKey: keys.employeeRecords(employeeId), queryFn: () => api.listEmployeeRecords(employeeId) })
+
+export function useSaveEmployeeRecord() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: (input: EmployeeRecordInput) => api.saveEmployeeRecord(input),
+    onSuccess: (r) => invalidate(keys.employeeRecords(r.employeeId)),
+  })
+}
+
+export function useDeleteEmployeeRecord() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: ({ employeeId, id }: { employeeId: string; id: string }) => api.deleteEmployeeRecord(employeeId, id),
+    onSuccess: (_, v) => invalidate(keys.employeeRecords(v.employeeId)),
+  })
 }
 
 export function useComputePayroll() {
@@ -66,7 +102,7 @@ export function useSetPeriodStatus() {
 
 export function useSaveAdjustment() {
   const invalidate = useInvalidate()
-  return useMutation({ mutationFn: (input: AdjustmentInput) => api.saveAdjustment(input), onSuccess: () => invalidate(keys.adjustments) })
+  return useMutation({ mutationFn: (input: AdjustmentInput) => api.saveAdjustment(input), onSuccess: () => invalidate(keys.adjustments, ['loans']) })
 }
 
 export function useDecideOvertime() {
@@ -85,6 +121,40 @@ export function useSaveAnnouncement() {
 export function useSaveSettings() {
   const invalidate = useInvalidate()
   return useMutation({ mutationFn: (input: PayrollSettings) => api.saveSettings(input), onSuccess: () => invalidate(keys.settings) })
+}
+
+/* Holiday calendar and shifts change attendance and pay: refresh periods and daily records too */
+const scheduleKeys = [['holidays'], ['shifts'], keys.periods, ['daily'], keys.employees] as const
+
+export const useHolidays = () => useQuery({ queryKey: ['holidays'], queryFn: api.listHolidays })
+export const useShifts = () => useQuery({ queryKey: ['shifts'], queryFn: api.listShifts })
+
+export function useSaveHoliday() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: ({ input, originalDate }: { input: Holiday; originalDate?: string }) => api.saveHoliday(input, originalDate),
+    onSuccess: () => invalidate(...scheduleKeys),
+  })
+}
+
+export function useDeleteHoliday() {
+  const invalidate = useInvalidate()
+  return useMutation({ mutationFn: (date: string) => api.deleteHoliday(date), onSuccess: () => invalidate(...scheduleKeys) })
+}
+
+export function useLoadOfficialHolidays() {
+  const invalidate = useInvalidate()
+  return useMutation({ mutationFn: () => api.loadOfficialHolidays(), onSuccess: () => invalidate(...scheduleKeys) })
+}
+
+export function useSaveShift() {
+  const invalidate = useInvalidate()
+  return useMutation({ mutationFn: (input: ShiftInput) => api.saveShift(input), onSuccess: () => invalidate(...scheduleKeys) })
+}
+
+export function useDeleteShift() {
+  const invalidate = useInvalidate()
+  return useMutation({ mutationFn: (id: string) => api.deleteShift(id), onSuccess: () => invalidate(...scheduleKeys) })
 }
 
 /** Attendance edits can reset a computed payroll to draft, so refresh the whole period (lines, totals, status). */
@@ -156,6 +226,99 @@ export function useDecideRequest() {
       status: Exclude<ApprovalStatus, 'pending'>
       overtime?: { date: string; hours: number; kind: OvertimeKind }
     }) => api.decideRequest(id, status, overtime),
-    onSuccess: () => invalidate(['requests'], keys.overtime, keys.periods),
+    // Approved time filings change the daily time records too
+    onSuccess: () => invalidate(['requests'], keys.overtime, keys.periods, ['daily']),
+  })
+}
+
+export function useDecideRequests() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: ({ ids, status }: { ids: string[]; status: Exclude<ApprovalStatus, 'pending'> }) => api.decideRequests(ids, status),
+    onSuccess: () => invalidate(['requests'], keys.overtime, keys.periods, ['daily']),
+  })
+}
+
+/** HR files a discrepancy / no DTR / undertime / official business / overtime for an employee. */
+export function useFileRequest() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: (input: FilingInput) => api.fileRequest(input),
+    onSuccess: () => invalidate(['requests'], keys.overtime, keys.periods, ['daily']),
+  })
+}
+
+/* ------------------------------ Phase 2B: special pay ------------------------------ */
+
+export const usePayEntries = (periodId: string) => useQuery({ queryKey: ['periods', periodId, 'entries'], queryFn: () => api.listPayEntries(periodId), enabled: !!periodId })
+
+/** Entries change what the payroll pays, so a computed payroll goes back to draft: refresh periods too */
+export function usePayEntryMutations(periodId: string) {
+  const invalidate = useInvalidate()
+  const done = () => invalidate(['periods', periodId, 'entries'], keys.periods)
+  return {
+    add: useMutation({ mutationFn: (input: PayEntryInput) => api.addPayEntry(periodId, input), onSuccess: done }),
+    remove: useMutation({ mutationFn: (entryId: string) => api.deletePayEntry(periodId, entryId), onSuccess: done }),
+    convertVl: useMutation({ mutationFn: (maxDays?: number) => api.convertVacationLeave(periodId, maxDays), onSuccess: done }),
+  }
+}
+
+export const useThirteenthMonth = (year: string) => useQuery({ queryKey: ['thirteenth-month', year], queryFn: () => api.thirteenthMonth(year) })
+
+/* ------------------------------ Phase 5: shipping ------------------------------ */
+
+export const useVessels = () => useQuery({ queryKey: ['vessels'], queryFn: api.listVessels })
+export const useCrew = (filter: { employeeId?: string; aboard?: boolean } = {}) => useQuery({ queryKey: ['crew', filter], queryFn: () => api.listCrew(filter) })
+export const useCadets = () => useQuery({ queryKey: ['cadets'], queryFn: api.listCadets })
+export const useLicenses = (days = 90) => useQuery({ queryKey: ['licenses', days], queryFn: () => api.listLicenses(days) })
+
+export function useShippingMutations() {
+  const invalidate = useInvalidate()
+  const crewDone = () => invalidate(['crew'], ['vessels'], ['reports'])
+  return {
+    saveVessel: useMutation({ mutationFn: (v: VesselInput) => api.saveVessel(v), onSuccess: () => invalidate(['vessels']) }),
+    saveStint: useMutation({ mutationFn: (s: CrewStintInput) => api.saveCrewStint(s), onSuccess: crewDone }),
+    deleteStint: useMutation({ mutationFn: (id: string) => api.deleteCrewStint(id), onSuccess: crewDone }),
+    disembark: useMutation({ mutationFn: ({ id, input }: { id: string; input: DisembarkInput }) => api.disembark(id, input), onSuccess: crewDone }),
+    saveCadet: useMutation({ mutationFn: (c: CadetInput) => api.saveCadet(c), onSuccess: () => invalidate(['cadets']) }),
+    moveCadet: useMutation({
+      mutationFn: ({ id, stage, note }: { id: string; stage: CadetStage; note?: string }) => api.moveCadet(id, stage, note),
+      onSuccess: () => invalidate(['cadets']),
+    }),
+  }
+}
+
+export const useReportCatalog = () => useQuery({ queryKey: ['reports'], queryFn: api.listReports, staleTime: Infinity })
+export const useReport = (key: string | null, params: ReportParams) =>
+  useQuery({ queryKey: ['reports', key, params], queryFn: () => api.runReport(key!, params), enabled: !!key })
+
+export const useFinalPays = () => useQuery({ queryKey: ['final-pays'], queryFn: api.listFinalPays })
+export const useFinalPay = (employeeId: string) => useQuery({ queryKey: ['final-pays', employeeId], queryFn: () => api.getFinalPay(employeeId), enabled: !!employeeId })
+
+export function useFinalPayMutations(employeeId: string) {
+  const invalidate = useInvalidate()
+  const done = () => invalidate(['final-pays'], keys.employees, ['loans'], keys.adjustments)
+  return {
+    compute: useMutation({
+      mutationFn: ({ separationDate, separationReason }: { separationDate: string; separationReason?: SeparationReason }) =>
+        api.computeFinalPay(employeeId, separationDate, separationReason),
+      onSuccess: done,
+    }),
+    save: useMutation({ mutationFn: (input: Pick<FinalPay, 'earnings' | 'deductions' | 'clearance'>) => api.saveFinalPay(employeeId, input), onSuccess: done }),
+    status: useMutation({ mutationFn: (status: FinalPay['status']) => api.setFinalPayStatus(employeeId, status), onSuccess: done }),
+    remove: useMutation({ mutationFn: () => api.deleteFinalPay(employeeId), onSuccess: done }),
+  }
+}
+
+export const useLoans = (employeeId?: string) => useQuery({ queryKey: keys.loans(employeeId), queryFn: () => api.listLoans(employeeId) })
+
+export const usePayslipEmails = (periodId: string, enabled = true) =>
+  useQuery({ queryKey: keys.payslipEmails(periodId), queryFn: () => api.getPayslipEmails(periodId), enabled: !!periodId && enabled })
+
+export function useSendPayslipEmails() {
+  const invalidate = useInvalidate()
+  return useMutation({
+    mutationFn: ({ periodId, employeeIds }: { periodId: string; employeeIds?: string[] }) => api.sendPayslipEmails(periodId, employeeIds),
+    onSuccess: (_, v) => invalidate(keys.payslipEmails(v.periodId)),
   })
 }

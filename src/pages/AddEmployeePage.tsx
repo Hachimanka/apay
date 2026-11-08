@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { motion } from 'motion/react'
@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/Button'
 import { Field, Input, Select } from '@/components/ui/Field'
 import { useCreateEmployee, useEmployees } from '@/services/queries'
 import type { NewEmployeeResult } from '@/services/types'
+import { useApplicants } from '@/services/platform'
 import { useDetailCrumb } from '@/store/breadcrumb'
 import { dailyRate } from '@/lib/payroll'
 import { formatPeso } from '@/lib/format'
@@ -68,6 +69,18 @@ export function AddEmployeePage() {
     if (suggested) setValue('employeeNo', suggested, { shouldValidate: !!errors.employeeNo })
   }, [suggested, setValue, errors.employeeNo])
 
+  // Hiring from Recruitment (?applicant=…): start from what the application already has
+  const applicantId = useSearchParams()[0].get('applicant') ?? undefined
+  const applicant = useApplicants().data?.find((a) => a.id === applicantId)
+  useEffect(() => {
+    if (!applicant) return
+    setValue('firstName', applicant.firstName)
+    setValue('lastName', applicant.lastName)
+    setValue('position', applicant.position)
+    if (departments.includes(applicant.department)) setValue('department', applicant.department)
+    if (applicant.expectedSalary) setValue('monthlyBasic', String(Number(applicant.expectedSalary)))
+  }, [applicant, setValue])
+
   const basic = watch('monthlyBasic')
   const email = watch('email')
   const validBasic = /^\d+(\.\d{1,2})?$/.test(basic ?? '') && Number(basic) > 0
@@ -77,6 +90,7 @@ export function AddEmployeePage() {
       ...v,
       email: v.email.trim().toLowerCase(),
       monthlyBasic: Number(v.monthlyBasic).toFixed(2),
+      ...(applicant && { applicantId: applicant.id, middleName: applicant.middleName }),
       bank: { name: extras.bankName.trim(), account: extras.bankAccount.trim() },
       govIds: { sss: extras.sss.trim(), philhealth: extras.philhealth.trim(), pagibig: extras.pagibig.trim(), tin: extras.tin.trim() },
     })
@@ -108,7 +122,7 @@ export function AddEmployeePage() {
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold tracking-wider text-muted uppercase">People</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Add employee</h1>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">{applicant ? `Hire ${applicant.fullName}` : 'Add employee'}</h1>
           <p className="mt-1.5 text-sm text-muted">Adds them to payroll and creates their AZONE account in one step.</p>
         </div>
       </div>

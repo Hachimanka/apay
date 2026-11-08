@@ -427,6 +427,8 @@ export const settings: PayrollSettings = {
   roundLateTo: 1,
   requireTwoStepApproval: true,
   autoPublishToAzone: true,
+  emailPayslips: true,
+  thirteenthMonthAuto: true,
 }
 
 export const audit: AuditEntry[] = periods

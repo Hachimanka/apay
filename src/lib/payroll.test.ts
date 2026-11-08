@@ -85,3 +85,13 @@ describe('computeCutoff', () => {
     expect(sum([r.netPay, r.totalDeductions])).toBe(r.grossPay)
   })
 })
+
+describe('Phase 2 rules (same engine as aznar-api)', () => {
+  const b = { monthlyBasic: '26100.00', deMinimis: '0', taxableAllowances: '0', absentDays: 0, unpaidLeaveDays: 0, lateMinutes: 0, overtime: [], otherDeductions: [] }
+  it('pays holiday premiums, night differential at 110% and overtime by day type', () => {
+    expect(computeCutoff({ ...b, dayWork: [{ type: 'regular', hours: 8 }] }).holidayPay).toBe('1200.00')
+    expect(computeCutoff({ ...b, nightHours: 8 }).nightDiffPay).toBe('120.00')
+    expect(computeCutoff({ ...b, overtime: [{ kind: 'regular', hours: 1, day: 'regular' }] }).overtimePay).toBe('390.00')
+    expect(computeCutoff({ ...b, payBasis: 'daily', daysPresent: 10 }).basicPay).toBe('12000.00')
+  })
+})

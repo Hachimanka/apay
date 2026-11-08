@@ -1,4 +1,4 @@
-import { computeCutoff, sum } from '@/lib/payroll'
+import { computeCutoff, dailyRate, sum } from '@/lib/payroll'
 import { emptyPunches, manilaToday, punchError } from '@/lib/timeRecords'
 import type {
   ApayApi,
@@ -13,6 +13,35 @@ import type {
   Punches,
 } from '../types'
 import * as db from './data'
+import { movementFor, recordConfigs } from '@/features/employees/records'
+import type { Cadet, CrewStint, EmployeeProfileInput, EmployeeRecord, FilingKind, FinalPay, Holiday, Loan, PayEntry, PayslipEmail, Shift, Vessel } from '../types'
+
+/** Holiday calendar and shift codes (demo only). The official list mirrors aznar-api src/lib/holidays.ts (2027 shown). */
+const officialHolidays: Holiday[] = [
+  { date: '2026-11-30', name: 'Bonifacio Day', type: 'regular' },
+  { date: '2026-12-08', name: 'Feast of the Immaculate Conception', type: 'special' },
+  { date: '2026-12-24', name: 'Christmas Eve', type: 'special' },
+  { date: '2026-12-25', name: 'Christmas Day', type: 'regular' },
+  { date: '2026-12-30', name: 'Rizal Day', type: 'regular' },
+  { date: '2026-12-31', name: 'Last Day of the Year', type: 'special' },
+  { date: '2027-01-01', name: 'New Year’s Day', type: 'regular' },
+  { date: '2027-02-06', name: 'Chinese New Year', type: 'special' },
+  { date: '2027-03-25', name: 'Maundy Thursday', type: 'regular' },
+  { date: '2027-03-26', name: 'Good Friday', type: 'regular' },
+  { date: '2027-03-27', name: 'Black Saturday', type: 'special' },
+  { date: '2027-04-09', name: 'Araw ng Kagitingan', type: 'regular' },
+  { date: '2027-05-01', name: 'Labor Day', type: 'regular' },
+  { date: '2027-06-12', name: 'Independence Day', type: 'regular' },
+]
+const holidays: Holiday[] = officialHolidays.slice(0, 6).map((h) => ({ ...h }))
+const shifts: Shift[] = [
+  { id: 'shf_day', code: 'DAY', name: 'Day shift', startMinutes: 480, endMinutes: 1020, breakMinutes: 60, restDays: [0, 6], active: true, employees: 0 },
+  { id: 'shf_night', code: 'NIGHT', name: 'Night shift', startMinutes: 1320, endMinutes: 420, breakMinutes: 60, restDays: [0, 6], active: true, employees: 0 },
+]
+
+/** 201-file records and HR-edited profile fields (demo only; reset on reload). */
+const records: EmployeeRecord[] = []
+const profiles = new Map<string, EmployeeProfileInput>()
 
 /** In-memory stand-in for aznar-api so APAY works before the backend exists. */
 
@@ -85,6 +114,10 @@ function computeLines(period: PayrollPeriod): PayrollLine[] {
       lateMinutes: Math.max(0, a.lateMinutes - db.settings.graceMinutes),
       overtime: a.overtimeHours ? [{ kind: 'regular', hours: a.overtimeHours }] : [],
       otherDeductions: mine.filter((x) => x.kind === 'deduction').map((x) => ({ label: x.name, amount: x.amount })),
+      // Demo cut-offs are seeded totals (no punches), so holiday work and night hours stay 0 here
+      payBasis: emp.payBasis,
+      daysPresent: a.daysPresent,
+      paidLeaveDays: a.paidLeaveDays,
     })
     return {
       ...result,
@@ -145,6 +178,11 @@ export const mockApi: ApayApi = {
     const n = Number(e.employeeNo.replace(/\D/g, '').slice(-3)) || 1
     return wait({
       ...e,
+      gender: '' as const,
+      civilStatus: '' as const,
+      permanentAddress: '',
+      spouseName: '',
+      skills: [] as string[],
       phone: `0917 ${String(100 + (n % 900)).padStart(3, '0')} ${String(1000 + n).slice(-4)}`,
       address: `${(n % 90) + 10} Osmeña Blvd, Cebu City`,
       birthday: `199${n % 10}-${String((n % 12) + 1).padStart(2, '0')}-${String((n % 27) + 1).padStart(2, '0')}`,
@@ -155,6 +193,7 @@ export const mockApi: ApayApi = {
         relation: 'Parent',
         phone: `0918 ${String(200 + (n % 700))} ${String(5000 + n).slice(-4)}`,
       },
+      ...profiles.get(e.id),
       avatarUrl: demoPhoto(e.id),
     })
   },
@@ -176,9 +215,46 @@ export const mockApi: ApayApi = {
     const fullName = `${input.firstName} ${input.lastName}`
     const e = db.employees.find((x) => x.id === input.id)
     if (!e) throw new ApiError('Employee not found', 404)
-    Object.assign(e, input, { fullName })
+    const { gender, civilStatus, address, permanentAddress, birthday, spouseName, skills, ...core } = input
+    const profile = Object.fromEntries(
+      Object.entries({ gender, civilStatus, address, permanentAddress, birthday, spouseName, skills }).filter(([, v]) => v !== undefined),
+    )
+    profiles.set(e.id, { ...profiles.get(e.id), ...profile })
+    const move = movementFor(e, { ...e, ...core })
+    Object.assign(e, core, { fullName })
+    if (move) {
+      const now = new Date().toISOString()
+      records.unshift({ id: `rec_${Date.now()}`, employeeId: e.id, kind: 'movement', auto: true, createdAt: now, updatedAt: now, data: { effectiveDate: manilaToday(), ...move, remarks: '' } })
+    }
     log('Updated employee', fullName)
     return wait(e, 500)
+  },
+
+  listEmployeeRecords: async (employeeId) => wait(records.filter((r) => r.employeeId === employeeId)),
+  async saveEmployeeRecord({ id, employeeId, kind, data }) {
+    const e = db.employees.find((x) => x.id === employeeId)
+    if (!e) throw new ApiError('Employee not found', 404)
+    const now = new Date().toISOString()
+    if (id) {
+      const r = records.find((x) => x.id === id && x.employeeId === employeeId)
+      if (!r) throw new ApiError('Record not found', 404)
+      if (r.auto) throw new ApiError('Movement logged automatically from employee changes can’t be edited or deleted', 403)
+      Object.assign(r, { data, updatedAt: now })
+      log(`Updated ${recordConfigs[kind].singular} record`, e.fullName)
+      return wait(r)
+    }
+    const r: EmployeeRecord = { id: `rec_${Date.now()}`, employeeId, kind, data, auto: false, createdAt: now, updatedAt: now }
+    records.unshift(r)
+    log(`Added ${recordConfigs[kind].singular} record`, e.fullName)
+    return wait(r)
+  },
+  async deleteEmployeeRecord(employeeId, id) {
+    const i = records.findIndex((x) => x.id === id && x.employeeId === employeeId)
+    if (i < 0) throw new ApiError('Record not found', 404)
+    if (records[i].auto) throw new ApiError('Movement logged automatically from employee changes can’t be edited or deleted', 403)
+    const [r] = records.splice(i, 1)
+    log(`Deleted ${recordConfigs[r.kind].singular} record`, db.employees.find((x) => x.id === employeeId)?.fullName ?? '')
+    await wait(null)
   },
 
   listPeriods: () => wait(db.periods),
@@ -343,6 +419,8 @@ export const mockApi: ApayApi = {
     const r = demoRequests.find((x) => x.id === id)
     if (!r || r.status !== 'pending') throw new ApiError('Pending request not found', 404)
     if (status === 'approved' && r.kind === 'overtime') {
+      const d = r.data as { date?: string; hours?: number } | null | undefined
+      if (!ot && d?.date && d.hours) ot = { date: d.date, hours: d.hours, kind: 'regular' }
       if (!ot) throw new ApiError('Enter the overtime date, hours and type to approve it')
       db.overtime.unshift({
         id: `ot_${Date.now()}`,
@@ -361,6 +439,272 @@ export const mockApi: ApayApi = {
     log(`${status === 'approved' ? 'Approved' : 'Rejected'} ${r.title.toLowerCase()}`, r.employeeName)
     return wait(r, 400)
   },
+  async decideRequests(ids, status) {
+    const results: { id: string; ok: boolean; error?: string }[] = []
+    for (const id of ids) {
+      try {
+        await mockApi.decideRequest(id, status)
+        results.push({ id, ok: true })
+      } catch (e) {
+        results.push({ id, ok: false, error: e instanceof Error ? e.message : 'Failed' })
+      }
+    }
+    return wait({ results })
+  },
+  async fileRequest(input) {
+    const emp = db.employees.find((e) => e.id === input.employeeId)
+    if (!emp) throw new ApiError('Employee not found', 404)
+    const d = input.data as Record<string, string>
+    const created: AzoneRequest = {
+      id: `req_${Date.now()}`,
+      employeeId: emp.id,
+      employeeName: emp.fullName,
+      department: emp.department,
+      kind: input.kind,
+      title: filingTitle[input.kind],
+      details: input.details,
+      status: 'pending',
+      filedAt: new Date().toISOString(),
+      data: input.data,
+      startDate: d.startDate ?? d.date,
+      endDate: d.endDate ?? d.date,
+      filedByHr: true,
+    }
+    demoRequests.unshift(created)
+    log(`Filed ${created.title.toLowerCase()} on behalf of employee`, emp.fullName)
+    return input.approve ? mockApi.decideRequest(created.id, 'approved') : wait(created, 400)
+  },
+
+  listPayEntries: (periodId) => wait(payEntries.filter((e) => e.periodId === periodId)),
+  async addPayEntry(periodId, input) {
+    const emp = db.employees.find((e) => e.id === input.employeeId)
+    if (!emp) throw new ApiError('Employee not found', 404)
+    const labels: Record<string, string> = {
+      thirteenth_month: '13th Month Pay',
+      bonus: 'Bonus',
+      leave_conversion: 'Vacation Leave Conversion',
+      other_taxable: 'Other Earning (taxable)',
+      other_non_taxable: 'Other Earning (non-taxable)',
+      deduction: 'Deduction',
+    }
+    const amount = input.kind === 'leave_conversion' ? dailyRate(emp.monthlyBasic).times(input.days ?? 0).toFixed(2) : Number(input.amount ?? 0).toFixed(2)
+    payEntries.push({
+      id: `pe_${Date.now()}`,
+      periodId,
+      employeeId: emp.id,
+      employeeName: emp.fullName,
+      department: emp.department,
+      kind: input.kind,
+      kindLabel: labels[input.kind],
+      label: input.label || labels[input.kind],
+      amount,
+      days: input.days,
+    })
+    return mockApi.listPayEntries(periodId)
+  },
+  async deletePayEntry(periodId, entryId) {
+    const i = payEntries.findIndex((e) => e.id === entryId)
+    if (i >= 0) payEntries.splice(i, 1)
+    return mockApi.listPayEntries(periodId)
+  },
+  async convertVacationLeave(periodId, maxDays) {
+    let added = 0
+    for (const e of db.employees.filter((x) => x.status !== 'resigned')) {
+      await mockApi.addPayEntry(periodId, { employeeId: e.id, kind: 'leave_conversion', days: Math.min(5, maxDays ?? 5) })
+      added++
+    }
+    return { added, entries: await mockApi.listPayEntries(periodId) }
+  },
+  async thirteenthMonth(year) {
+    const months = year === manilaToday().slice(0, 4) ? Number(manilaToday().slice(5, 7)) - 1 : 12
+    return wait(
+      db.employees.map((e) => {
+        const basicEarned = (Number(e.monthlyBasic) * months).toFixed(2)
+        const accrued = (Number(basicEarned) / 12).toFixed(2)
+        return { employeeId: e.id, employeeNo: e.employeeNo, name: e.fullName, department: e.department, status: e.status, cutoffs: months * 2, basicEarned, accrued, paid: '0.00', due: accrued }
+      }),
+    )
+  },
+
+  listFinalPays: () => wait(finalPays),
+
+  listVessels: () => wait(vessels.map((v) => ({ ...v, aboard: crew.filter((c) => c.vesselId === v.id && c.aboard).length }))),
+  async saveVessel(input) {
+    const v = { aboard: 0, ...input, id: input.id ?? `v_${Date.now()}` }
+    const i = vessels.findIndex((x) => x.id === v.id)
+    if (i >= 0) vessels.splice(i, 1, v)
+    else vessels.push(v)
+    return wait(v)
+  },
+  listCrew: (f = {}) => wait(crew.filter((c) => (!f.employeeId || c.employeeId === f.employeeId) && (!f.aboard || c.aboard))),
+  async saveCrewStint(input) {
+    const emp = db.employees.find((e) => e.id === input.employeeId)
+    const v = vessels.find((x) => x.id === input.vesselId)
+    const s: CrewStint = {
+      ...input,
+      id: input.id ?? `cs_${Date.now()}`,
+      employeeName: emp?.fullName,
+      vesselName: v?.name,
+      disembarkDate: input.disembarkDate ?? undefined,
+      disembarkReason: input.disembarkReason ?? undefined,
+      days: 1,
+      aboard: !input.disembarkDate,
+    }
+    const i = crew.findIndex((x) => x.id === s.id)
+    if (i >= 0) crew.splice(i, 1, s)
+    else crew.unshift(s)
+    return wait(s)
+  },
+  async deleteCrewStint(id) {
+    const i = crew.findIndex((x) => x.id === id)
+    if (i >= 0) crew.splice(i, 1)
+    await wait(null)
+  },
+  async disembark(id, input) {
+    const s = crew.find((x) => x.id === id)
+    if (!s) throw new ApiError('Crew record not found', 404)
+    Object.assign(s, { disembarkDate: input.date, disembarkPort: input.port, disembarkReason: input.transferTo ? 'transfer' : input.reason, aboard: false })
+    const next = input.transferTo
+      ? await mockApi.saveCrewStint({
+          employeeId: s.employeeId,
+          vesselId: input.transferTo.vesselId,
+          rank: input.transferTo.rank ?? s.rank,
+          embarkDate: input.date,
+          embarkPort: input.port,
+          disembarkDate: null,
+          disembarkPort: '',
+          disembarkReason: null,
+          remarks: '',
+        })
+      : undefined
+    return wait({ closed: s, next })
+  },
+  listCadets: () => wait(cadets),
+  async saveCadet(input) {
+    const existing = cadets.find((c) => c.id === input.id)
+    const c: Cadet = { stage: 'applicant', stageHistory: [], seaDays: 0, seaProgress: 0, ...existing, ...input, id: input.id ?? `cd_${Date.now()}` }
+    if (existing) Object.assign(existing, c)
+    else cadets.push(c)
+    return wait(c)
+  },
+  async moveCadet(id, stage, note = '') {
+    const c = cadets.find((x) => x.id === id)
+    if (!c) throw new ApiError('Cadet not found', 404)
+    c.stage = stage
+    c.stageHistory.push({ stage, date: manilaToday(), note, by: actor })
+    return wait(c)
+  },
+  listLicenses: () => wait([]),
+
+  listReports: () =>
+    wait([
+      { key: 'demographics', group: 'Workforce', params: [] },
+      { key: 'tenure', group: 'Workforce', params: [] },
+    ]),
+  async runReport(key) {
+    const rows = db.employees.map((e) => ({ name: e.fullName, department: e.department, value: e.position }))
+    return wait({
+      key,
+      title: key === 'tenure' ? 'Tenure' : 'Manpower demographics',
+      description: 'Demo data — connect the API to see the real report.',
+      columns: [
+        { key: 'name', label: 'Employee' },
+        { key: 'department', label: 'Department' },
+        { key: 'value', label: 'Position' },
+      ],
+      rows,
+    })
+  },
+  getFinalPay: (employeeId) => wait(finalPays.find((f) => f.employeeId === employeeId) ?? null),
+  async computeFinalPay(employeeId, separationDate) {
+    const emp = db.employees.find((e) => e.id === employeeId)
+    if (!emp) throw new ApiError('Employee not found', 404)
+    const half = (Number(emp.monthlyBasic) / 2).toFixed(2)
+    const th = ((Number(emp.monthlyBasic) * Number(separationDate.slice(5, 7))) / 12).toFixed(2)
+    const f: FinalPay = {
+      id: `fp_${employeeId}`,
+      employeeId,
+      employeeName: emp.fullName,
+      department: emp.department,
+      separationDate,
+      status: 'draft',
+      earnings: [
+        { key: 'salary', label: 'Salary (demo)', amount: half, included: true },
+        { key: 'thirteenth', label: 'Prorated 13th month pay', amount: th, included: true },
+      ],
+      deductions: [{ key: 'tax', label: 'Withholding tax (year-end adjustment)', amount: '1250.00', included: true }],
+      clearance: [
+        { key: 'handover', label: 'Work turned over to the department', done: false },
+        { key: 'id', label: 'Company ID returned', done: false },
+        { key: 'quitclaim', label: 'Quitclaim / release signed', done: false },
+      ],
+      basis: { separationDate, dailyRate: dailyRate(emp.monthlyBasic).toFixed(2) },
+      netPay: (Number(half) + Number(th) - 1250).toFixed(2),
+      updatedAt: new Date().toISOString(),
+    }
+    const i = finalPays.findIndex((x) => x.employeeId === employeeId)
+    if (i >= 0) finalPays.splice(i, 1, f)
+    else finalPays.push(f)
+    return wait(f, 500)
+  },
+  async saveFinalPay(employeeId, input) {
+    const f = finalPays.find((x) => x.employeeId === employeeId)
+    if (!f) throw new ApiError('Final pay not found', 404)
+    Object.assign(f, input)
+    const total = (xs: FinalPay['earnings']) => xs.filter((x) => x.included).reduce((s, x) => s + Number(x.amount), 0)
+    f.netPay = (total(f.earnings) - total(f.deductions)).toFixed(2)
+    return wait(f)
+  },
+  async setFinalPayStatus(employeeId, status) {
+    const f = finalPays.find((x) => x.employeeId === employeeId)
+    if (!f) throw new ApiError('Final pay not found', 404)
+    if (status === 'approved' && f.clearance.some((c) => !c.done)) throw new ApiError('Finish the clearance checklist before approving', 400)
+    f.status = status
+    if (status === 'released') {
+      const emp = db.employees.find((e) => e.id === employeeId)
+      if (emp) emp.status = 'resigned'
+    }
+    return wait(f)
+  },
+  async deleteFinalPay(employeeId) {
+    const i = finalPays.findIndex((x) => x.employeeId === employeeId && x.status === 'draft')
+    if (i < 0) throw new ApiError('Only a draft final pay can be removed', 409)
+    finalPays.splice(i, 1)
+    await wait(null)
+  },
+
+  async listLoans(employeeId) {
+    const types: Record<string, string> = { sss: 'SSS Loan', pagibig: 'Pag-IBIG Loan', company: 'Company Loan', cash_advance: 'Cash Advance', other: 'Other Loan' }
+    const loans: Loan[] = db.adjustments
+      .filter((a) => a.kind === 'deduction' && (a.category === 'loan' || a.balance != null) && (!employeeId || a.employeeId === employeeId))
+      .map((a) => ({
+        id: a.id,
+        employeeId: a.employeeId,
+        employeeName: a.employeeName,
+        name: a.name,
+        loanType: a.loanType ?? 'other',
+        typeLabel: types[a.loanType ?? 'other'],
+        principal: a.principal,
+        amortization: a.amount,
+        balance: a.balance,
+        totalPaid: '0.00',
+        startDate: a.startDate,
+        active: a.active,
+        payments: [],
+      }))
+    return wait(loans)
+  },
+
+  getPayslipEmails: (periodId) => wait({ configured: false, log: payslipLog.filter((l) => l.periodId === periodId) }),
+  async sendPayslipEmails(periodId, employeeIds) {
+    const p = db.periods.find((x) => x.id === periodId)
+    if (!p || p.status !== 'released') throw new ApiError('Payslips can only be emailed once the payroll is released', 409)
+    const emps = db.employees.filter((e) => e.status !== 'resigned' && (!employeeIds || employeeIds.includes(e.id)))
+    for (const e of emps)
+      payslipLog.unshift({ id: `pe_${Date.now()}_${e.id}`, periodId, employeeId: e.id, employeeName: e.fullName, email: e.email, status: 'not_configured', sentAt: new Date().toISOString(), sentBy: actor })
+    log('Resent payslip emails', p.label)
+    return wait({ sent: 0, failed: 0, notConfigured: emps.length }, 500)
+  },
 
   listAnnouncements: () => wait(db.announcements),
   async saveAnnouncement(input) {
@@ -373,6 +717,53 @@ export const mockApi: ApayApi = {
     db.announcements.unshift(created)
     log(input.status === 'published' ? 'Published announcement' : 'Saved announcement draft', input.title)
     return wait(created, 400)
+  },
+
+  listHolidays: async () => wait([...holidays].sort((a, b) => a.date.localeCompare(b.date))),
+  async saveHoliday(input, originalDate) {
+    const clash = holidays.find((h) => h.date === input.date && h.date !== originalDate)
+    if (clash) throw new ApiError(`${input.date} is already a holiday (${clash.name})`, 409)
+    if (originalDate) {
+      const h = holidays.find((x) => x.date === originalDate)
+      if (!h) throw new ApiError('Holiday not found', 404)
+      Object.assign(h, input)
+    } else holidays.push({ ...input })
+    log(originalDate ? 'Updated holiday' : 'Added holiday', `${input.name} · ${input.date}`)
+    return wait(input)
+  },
+  async deleteHoliday(date) {
+    const i = holidays.findIndex((h) => h.date === date)
+    if (i < 0) throw new ApiError('Holiday not found', 404)
+    const [h] = holidays.splice(i, 1)
+    log('Removed holiday', `${h.name} · ${h.date}`)
+    await wait(null)
+  },
+  async loadOfficialHolidays() {
+    const missing = officialHolidays.filter((o) => !holidays.some((h) => h.date === o.date))
+    holidays.push(...missing.map((h) => ({ ...h })))
+    if (missing.length) log('Loaded official holidays', `${missing.length} dates`)
+    return wait({ added: missing.length })
+  },
+
+  listShifts: async () =>
+    wait(shifts.map((s) => ({ ...s, employees: db.employees.filter((e) => e.shiftId === s.id && e.status !== 'resigned').length }))),
+  async saveShift({ id, ...input }) {
+    const code = input.code.trim().toUpperCase()
+    if (shifts.some((s) => s.code === code && s.id !== id)) throw new ApiError(`Shift code ${code} is already used`, 409)
+    let s = shifts.find((x) => x.id === id)
+    if (id && !s) throw new ApiError('Shift not found', 404)
+    if (s) Object.assign(s, input, { code })
+    else shifts.push((s = { ...input, code, id: `shf_${Date.now()}`, employees: 0 }))
+    log(id ? 'Updated shift' : 'Added shift', `${code} · ${input.name}`)
+    return wait(s)
+  },
+  async deleteShift(id) {
+    if (db.employees.some((e) => e.shiftId === id)) throw new ApiError('Employees are still assigned to this shift — move them first, or mark it inactive', 409)
+    const i = shifts.findIndex((s) => s.id === id)
+    if (i < 0) throw new ApiError('Shift not found', 404)
+    const [s] = shifts.splice(i, 1)
+    log('Deleted shift', `${s.code} · ${s.name}`)
+    await wait(null)
   },
 
   getSettings: () => wait(db.settings),
@@ -393,6 +784,23 @@ function demoPhoto(employeeId: string) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${bg}"/><circle cx="32" cy="25" r="12" fill="#ffe0c2"/><path d="M10 64c2-14 12-21 22-21s20 7 22 21z" fill="#fff"/></svg>`
   return `data:image/svg+xml;base64,${btoa(svg)}`
 }
+
+const filingTitle: Record<FilingKind, string> = {
+  dtr_discrepancy: 'DTR Discrepancy',
+  no_dtr: 'No DTR',
+  undertime: 'Undertime',
+  official_business: 'Official Business',
+  overtime: 'Overtime Request',
+}
+
+const payslipLog: (PayslipEmail & { periodId: string })[] = []
+const payEntries: (PayEntry & { periodId: string })[] = []
+const vessels: Vessel[] = [
+  { id: 'v_1', name: 'MV Aznar Star', imoNo: '', type: 'roro', flag: 'Philippines', grossTonnage: 2400, homePort: 'Cebu', complement: 18, status: 'active', notes: '', aboard: 0 },
+]
+const crew: CrewStint[] = []
+const cadets: Cadet[] = []
+const finalPays: FinalPay[] = []
 
 /** Demo AZONE requests (in the real app employees file these under AZONE → Requests). */
 const demoRequests: AzoneRequest[] = (

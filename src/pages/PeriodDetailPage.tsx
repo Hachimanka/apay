@@ -11,6 +11,8 @@ import { PayrollStepper } from '@/components/shared/PayrollStepper'
 import { PeriodStatusBadge } from '@/components/shared/StatusBadges'
 import { PayslipView } from '@/components/shared/PayslipView'
 import { PresentDays } from '@/components/shared/PresentDays'
+import { PayslipEmails, ResendPayslipButton } from '@/features/payroll/PayslipEmails'
+import { PayEntries } from '@/features/payroll/PayEntries'
 import { useAttendance, useComputePayroll, usePayrollLines, usePeriod, useSetPeriodStatus } from '@/services/queries'
 import type { AttendanceRow, PayrollLine, PeriodStatus } from '@/services/types'
 import { useAuth } from '@/store/auth'
@@ -41,6 +43,13 @@ const registerColumns: ColumnDef<PayrollLine>[] = [
     ),
   },
   peso('basicPay', 'Basic'),
+  {
+    id: 'premiums',
+    header: 'Holiday / Night',
+    meta: { align: 'right' },
+    accessorFn: (l) => Number(l.holidayPay ?? 0) + Number(l.nightDiffPay ?? 0),
+    cell: ({ row }) => formatPeso(sum([row.original.holidayPay ?? '0', row.original.nightDiffPay ?? '0'])),
+  },
   peso('overtimePay', 'Overtime'),
   peso('allowances', 'Allowances'),
   {
@@ -151,7 +160,7 @@ export function PeriodDetailPage() {
             setConfirm({
               status: 'released',
               title: 'Release payroll?',
-              description: 'Payslips will be published to every employee’s AZONE app and the bank file becomes final.',
+              description: 'Payslips will be published to every employee’s AZONE app and the bank file becomes final. If payslip emails are on (Settings), each employee is emailed a link to their payslip — never the amounts.',
               cta: 'Release to AZONE',
             })
           }
@@ -170,8 +179,11 @@ export function PeriodDetailPage() {
                 Name: l.name,
                 Department: l.department,
                 Basic: l.basicPay,
+                'Holiday Pay': l.holidayPay ?? '0.00',
+                'Night Differential': l.nightDiffPay ?? '0.00',
                 Overtime: l.overtimePay,
                 Allowances: l.allowances,
+                '13th Month / Bonus / Other': l.extraEarnings ?? '0.00',
                 Absences: l.absencesDeduction,
                 Late: l.lateDeduction,
                 Gross: l.grossPay,
@@ -227,6 +239,13 @@ export function PeriodDetailPage() {
         ))}
       </div>
 
+      {p.status === 'released' && <PayslipEmails periodId={p.id} canSend={can(role, 'payroll.release')} />}
+      <PayEntries
+        periodId={p.id}
+        editable={(p.status === 'draft' || p.status === 'computed') && can(role, 'payroll.process')}
+        isDecember={p.end.endsWith('-12-31')}
+      />
+
       <div className="mt-6 mb-3 flex gap-1 rounded-xl bg-surface p-1 shadow-card sm:inline-flex">
         {(['register', 'attendance'] as const).map((t) => (
           <button
@@ -272,6 +291,7 @@ export function PeriodDetailPage() {
 
       <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)} title="Payslip preview">
         {preview && <PayslipView line={preview} period={p} />}
+        {preview && p.status === 'released' && can(role, 'payroll.release') && <ResendPayslipButton periodId={p.id} employeeId={preview.employeeId} />}
       </Dialog>
     </>
   )

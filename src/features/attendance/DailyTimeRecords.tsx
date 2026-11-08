@@ -14,6 +14,7 @@ import {
   FileUp,
   Info,
   Lock,
+  MapPin,
   Plane,
   Search,
   Upload,
@@ -124,7 +125,7 @@ export function DailyTimeRecords({ picked, onPick }: { picked: string[]; onPick:
     if (!data) return
     const next = { ...drafts }
     for (const r of rows)
-      if ((r.status === 'absent' || r.status === 'pending') && punchKeys.every((k) => !current(r)[k])) next[r.employeeId] = { ...data.shift }
+      if ((r.status === 'absent' || r.status === 'pending') && punchKeys.every((k) => !current(r)[k])) next[r.employeeId] = { ...(r.shift ?? data.shift) }
     setDrafts(next)
   }
   const blanksToFill = rows.filter((r) => (r.status === 'absent' || r.status === 'pending') && punchKeys.every((k) => !current(r)[k])).length
@@ -297,7 +298,7 @@ export function DailyTimeRecords({ picked, onPick }: { picked: string[]; onPick:
           <div className="ml-auto flex flex-wrap gap-2">
             {editable && blanksToFill > 0 && data && (
               <Button variant="soft" size="sm" onClick={fillBlanks} title="Only fills employees with no time record (not those on leave)">
-                <Wand2 className="size-4" /> Fill {blanksToFill} blank{blanksToFill > 1 ? 's' : ''} with {data.shift.timeIn}–{data.shift.timeOut}
+                <Wand2 className="size-4" /> Fill {blanksToFill} blank{blanksToFill > 1 ? 's' : ''} with each employee’s shift
               </Button>
             )}
             <Button
@@ -322,7 +323,9 @@ export function DailyTimeRecords({ picked, onPick }: { picked: string[]; onPick:
                     {punchLabels[k]}
                   </th>
                 ))}
-                <th className="px-3 py-3 text-right font-semibold">Late</th>
+                <th className="px-3 py-3 text-right font-semibold" title="Minutes late · minutes of undertime (left before the shift ended); both are deducted">
+                  Late / UT
+                </th>
                 <th className="px-3 py-3 text-right font-semibold">Hours</th>
                 <th className="w-10 pr-5" />
               </tr>
@@ -348,6 +351,7 @@ export function DailyTimeRecords({ picked, onPick }: { picked: string[]; onPick:
                       <span className="flex items-center gap-1.5 text-xs text-muted">
                         {r.employeeNo}
                         {r.source && <span className="text-muted/80">· {sourceLabel[r.source]}</span>}
+                        <GeoPins geo={r.geo} />
                         {r.cutoffOverridden && (
                           <span title="This employee’s cut-off totals were set directly on the Cut-off summary tab, so daily changes won’t affect their pay until that is reset.">
                             <Info className="size-3.5 text-warning" />
@@ -361,9 +365,18 @@ export function DailyTimeRecords({ picked, onPick }: { picked: string[]; onPick:
                           {error ? 'Check times' : 'Unsaved'}
                         </Badge>
                       ) : (
-                        <Badge size="sm" tone={st.tone}>
-                          {st.label}
-                        </Badge>
+                        <span className="inline-flex flex-wrap gap-1">
+                          <Badge size="sm" tone={st.tone}>
+                            {st.label}
+                          </Badge>
+                          {r.officialBusiness && (
+                            <span title="Approved official business: counts as present, with no late or undertime">
+                              <Badge size="sm" tone="primary">
+                                OB
+                              </Badge>
+                            </span>
+                          )}
+                        </span>
                       )}
                     </td>
                     {punchKeys.map((k) => (
@@ -387,8 +400,12 @@ export function DailyTimeRecords({ picked, onPick }: { picked: string[]; onPick:
                     <td className="px-3 py-2.5 text-right tabular-nums">
                       {dirty ? (
                         <span className="text-muted">…</span>
-                      ) : r.lateMinutes ? (
-                        <span className="font-semibold text-warning">{r.lateMinutes}m</span>
+                      ) : r.lateMinutes || r.undertimeMinutes ? (
+                        <span className="font-semibold whitespace-nowrap text-warning">
+                          {r.lateMinutes ? `${r.lateMinutes}m` : ''}
+                          {r.lateMinutes && r.undertimeMinutes ? ' · ' : ''}
+                          {r.undertimeMinutes ? <span title="Undertime: left before the shift ended">UT {r.undertimeMinutes}m</span> : ''}
+                        </span>
                       ) : (
                         <span className="text-muted">0</span>
                       )}
@@ -511,5 +528,34 @@ function ImportResult({ outcome: o, viewing, onClose }: { outcome: NonNullable<I
         </button>
       </div>
     </motion.div>
+  )
+}
+
+const punchNames = { timeIn: 'Time in', breakOut: 'Break out', breakIn: 'Break in', timeOut: 'Time out' } as const
+
+/** Map pins for geo-tagged AZONE punches; red when a punch was outside every allowed site. */
+function GeoPins({ geo }: { geo?: DailyRow['geo'] }) {
+  if (!geo) return null
+  return (
+    <>
+      {(Object.keys(punchNames) as (keyof typeof punchNames)[]).map((k) => {
+        const g = geo[k]
+        if (!g) return null
+        const where = g.site ? `${g.distance} m from ${g.site}${g.outside ? ' (outside)' : ''}` : `±${g.accuracy} m`
+        return (
+          <a
+            key={k}
+            href={`https://www.google.com/maps?q=${g.lat},${g.lng}`}
+            target="_blank"
+            rel="noreferrer noopener"
+            title={`${punchNames[k]}: ${where}`}
+            aria-label={`${punchNames[k]} location: ${where}`}
+            className={cn('inline-flex', g.outside ? 'text-danger' : 'text-success')}
+          >
+            <MapPin className="size-3.5" />
+          </a>
+        )
+      })}
+    </>
   )
 }
